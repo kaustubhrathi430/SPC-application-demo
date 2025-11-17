@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SPC Control Chart - Magnum Ice Cream</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Premium Header -->
+        <header class="header">
+            <div class="header-branding">
+                <div class="logo-container">
+                    <img src="https://logos-world.net/wp-content/uploads/2021/08/Magnum-Logo.png" 
+                         alt="Magnum Ice Cream" 
+                         class="logo"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <div class="logo-fallback" style="display: none;">
+                        <span class="logo-text">MAGNUM</span>
+                        <span class="logo-subtext">ICE CREAM COMPANY</span>
+                    </div>
+                </div>
+                <div class="header-info">
+                    <h1>SPC CONTROL CHART</h1>
+                    <div class="header-details">
+                        <div class="header-field">
+                            <label for="productName">Product Name:</label>
+                            <input type="text" id="productName" placeholder="Klondike Chocolate/Chocolate" 
+                                   class="header-input" value="Klondike Chocolate/Chocolate">
+                        </div>
+                        <div class="header-field">
+                            <label for="productCode">Product Code:</label>
+                            <input type="text" id="productCode" placeholder="9573493" 
+                                   class="header-input" value="9573493">
+                        </div>
+                        <div class="header-field">
+                            <label for="freezerName">Freezer #:</label>
+                            <input type="text" id="freezerName" placeholder="2" 
+                                   class="header-input" value="2">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area - Swapped Layout -->
+        <div class="main-content">
+            <!-- Left Side: Data Entry Form -->
+            <div class="form-section">
+                <div class="form-card premium-card">
+                    <div class="card-header">
+                        <h2>New Measurement</h2>
+                        <div class="timestamp-display" id="currentTimestamp"></div>
+                    </div>
+                    
+                    <form id="measurementForm">
+                        <div class="form-group">
+                            <label for="operatorInitials">Operator Initials</label>
+                            <input type="text" id="operatorInitials" maxlength="10" required 
+                                   placeholder="Enter initials" autocomplete="off" class="premium-input">
+                        </div>
+
+                        <div class="parameter-group premium-param">
+                            <div class="param-header">
+                                <h3>SLICE THICKNESS</h3>
+                                <span class="target-badge">Target: 20.1</span>
+                            </div>
+                            <div class="form-group">
+                                <input type="number" id="thicknessValue" step="0.1" min="0" 
+                                       required class="premium-input">
+                                <div class="control-limits-compact">
+                                    <span class="limit-lcl">LCL: 19.7</span>
+                                    <span class="limit-lwl">LWL: 19.9</span>
+                                    <span class="limit-target">20.1</span>
+                                    <span class="limit-uwl">UWL: 20.3</span>
+                                    <span class="limit-ucl">UCL: 20.5</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="parameter-group premium-param">
+                            <div class="param-header">
+                                <h3>SLICE WEIGHT</h3>
+                                <span class="target-badge">Target: 62.1</span>
+                            </div>
+                            <div class="form-group">
+                                <input type="number" id="weightValue" step="0.1" min="0" 
+                                       required class="premium-input">
+                                <div class="control-limits-compact">
+                                    <span class="limit-lcl">LCL: 58.1</span>
+                                    <span class="limit-lwl">LWL: 60.1</span>
+                                    <span class="limit-target">62.1</span>
+                                    <span class="limit-uwl">UWL: 64.1</span>
+                                    <span class="limit-ucl">UCL: 66.1</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="parameter-group premium-param">
+                            <div class="param-header">
+                                <h3>COATING WEIGHT</h3>
+                                <span class="target-badge">Target: 23.0</span>
+                            </div>
+                            <div class="form-group">
+                                <input type="number" id="coatingValue" step="0.1" min="0" 
+                                       required class="premium-input">
+                                <div class="control-limits-compact">
+                                    <span class="limit-lcl">LCL: 20.6</span>
+                                    <span class="limit-lwl">LWL: 21.8</span>
+                                    <span class="limit-target">23.0</span>
+                                    <span class="limit-uwl">UWL: 24.2</span>
+                                    <span class="limit-ucl">UCL: 25.4</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="weightAdjustments">Adjustments</label>
+                            <input type="text" id="weightAdjustments" 
+                                   placeholder="Optional (e.g., -crea)" autocomplete="off" class="premium-input">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="productImage">Product Photo (Optional)</label>
+                            <div class="image-upload-container">
+                                <input type="file" id="productImage" accept="image/*" capture="environment" 
+                                       class="image-input" onchange="handleImageUpload(event)">
+                                <label for="productImage" class="image-upload-btn">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                        <polyline points="21 15 16 10 5 21"></polyline>
+                                    </svg>
+                                    <span id="imageUploadText">Attach Photo</span>
+                                </label>
+                                <div id="imagePreview" class="image-preview"></div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="submit-btn premium-btn">
+                            <span>Record Measurement</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12h14M12 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Recent Entries with Edit/Delete -->
+                <div class="recent-entries premium-card">
+                    <div class="card-header">
+                        <h3>Recent Entries</h3>
+                        <button id="clearDataBtn" class="icon-btn" title="Clear All">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="entriesList" class="entries-list"></div>
+                </div>
+
+                <!-- Submit Sheet Button -->
+                <div class="submit-sheet-section premium-card">
+                    <button id="submitSheetBtn" class="submit-sheet-btn premium-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        <span>Submit Shift Report</span>
+                    </button>
+                    <div id="shiftReport" class="shift-report"></div>
+                </div>
+            </div>
+
+            <!-- Right Side: SPC Charts -->
+            <div class="charts-section">
+                <div class="chart-container premium-card">
+                    <div class="chart-header">
+                        <h2>SLICE THICKNESS</h2>
+                        <div class="chart-stats" id="thicknessStats"></div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="thicknessChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container premium-card">
+                    <div class="chart-header">
+                        <h2>SLICE WEIGHT</h2>
+                        <div class="chart-stats" id="weightStats"></div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="weightChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container premium-card">
+                    <div class="chart-header">
+                        <h2>COATING WEIGHT</h2>
+                        <div class="chart-stats" id="coatingStats"></div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="coatingChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
