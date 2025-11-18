@@ -34,6 +34,7 @@ let thicknessChart, weightChart, coatingChart;
 
 // Global variables for images
 let attachedImages = [];
+let lastESignature = null;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -41,9 +42,11 @@ document.addEventListener('DOMContentLoaded', function() {
     loadData();
     setupFormHandler();
     setupClearButton();
+    setupResetButton();
     setupSubmitSheet();
     setupImageUpload();
     setupHeaderFields();
+    setupAlarmModal();
     updateTimestamp();
     setInterval(updateTimestamp, 1000); // Update timestamp every second
 });
@@ -105,6 +108,26 @@ function formatTime(time) {
     return time || '';
 }
 
+// Determine Y-axis bounds so all readings remain visible
+function getYAxisBounds(parameter, data = []) {
+    const config = SPC_CONFIG[parameter];
+    const values = (data || [])
+        .map(entry => parseFloat(entry.value))
+        .filter(value => !isNaN(value));
+    
+    const dataMin = values.length ? Math.min(...values) : config.lcl;
+    const dataMax = values.length ? Math.max(...values) : config.ucl;
+    const minValue = Math.min(dataMin, config.lcl);
+    const maxValue = Math.max(dataMax, config.ucl);
+    const range = Math.max(0.1, maxValue - minValue);
+    const padding = Math.max(range * 0.2, 0.5);
+    
+    return {
+        min: minValue - padding,
+        max: maxValue + padding
+    };
+}
+
 // Initialize SPC Charts
 function initializeCharts() {
     // Thickness Chart
@@ -123,12 +146,7 @@ function initializeCharts() {
 // Create SPC Chart with control limits and smooth curves
 function createSPCChart(ctx, parameter) {
     const config = SPC_CONFIG[parameter];
-    
-    // Calculate Y-axis range with padding
-    const range = config.ucl - config.lcl;
-    const padding = range * 0.2;
-    const min = config.lcl - padding;
-    const max = config.ucl + padding;
+    const bounds = getYAxisBounds(parameter);
     
     return new Chart(ctx, {
         type: 'line',
@@ -251,8 +269,8 @@ function createSPCChart(ctx, parameter) {
             scales: {
                 y: {
                     beginAtZero: false,
-                    min: min,
-                    max: max,
+                    min: bounds.min,
+                    max: bounds.max,
                     grid: {
                         color: function(context) {
                             const value = context.tick.value;
@@ -308,6 +326,9 @@ function updateChart(chart, parameter, data) {
         chart.data.datasets[3].data = [config.lcl];
         chart.data.datasets[4].data = [config.uwl];
         chart.data.datasets[5].data = [config.lwl];
+        const emptyBounds = getYAxisBounds(parameter, []);
+        chart.options.scales.y.min = emptyBounds.min;
+        chart.options.scales.y.max = emptyBounds.max;
         chart.update();
         updateChartStats(parameter, []);
         return;
@@ -341,6 +362,9 @@ function updateChart(chart, parameter, data) {
         }
     });
 
+    const bounds = getYAxisBounds(parameter, sortedData);
+    chart.options.scales.y.min = bounds.min;
+    chart.options.scales.y.max = bounds.max;
     chart.update('active');
     updateChartStats(parameter, sortedData);
 }
@@ -604,6 +628,17 @@ function setupFormHandler() {
             alert('Please enter operator initials');
             return;
         }
+        
+        const outOfControlProcesses = [];
+        if (isOutOfControl('thickness', thickness)) {
+            outOfControlProcesses.push(SPC_CONFIG.thickness.name);
+        }
+        if (isOutOfControl('weight', weight)) {
+            outOfControlProcesses.push(SPC_CONFIG.weight.name);
+        }
+        if (isOutOfControl('coating', coating)) {
+            outOfControlProcesses.push(SPC_CONFIG.coating.name);
+        }
 
         // Add all three measurements with same timestamp
         const dateTime = getCurrentDateTime();
@@ -636,23 +671,52 @@ function setupFormHandler() {
 
         // Focus on first input for next entry
         document.getElementById('thicknessValue').focus();
+        
+        if (outOfControlProcesses.length > 0) {
+            showAlarmModal(outOfControlProcesses);
+        }
     });
 }
 
-// Setup clear button
+function clearAllReadings() {
+    localStorage.removeItem('spcData');
+    attachedImages = [];
+    updateChart(thicknessChart, 'thickness', []);
+    updateChart(weightChart, 'weight', []);
+    updateChart(coatingChart, 'coating', []);
+    updateEntriesList();
+    updateImagePreview();
+}
+
+// Setup clear button (legacy quick clear)
 function setupClearButton() {
     const clearBtn = document.getElementById('clearDataBtn');
     if (clearBtn) {
         clearBtn.addEventListener('click', function() {
             if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-                localStorage.removeItem('spcData');
-                updateChart(thicknessChart, 'thickness', []);
-                updateChart(weightChart, 'weight', []);
-                updateChart(coatingChart, 'coating', []);
-                updateEntriesList();
+                clearAllReadings();
             }
         });
     }
+}
+
+// Setup secure reset button
+function setupResetButton() {
+    const resetBtn = document.getElementById('resetAllBtn');
+    if (!resetBtn) return;
+    
+    resetBtn.addEventListener('click', function() {
+        const password = prompt('Enter password to reset all readings:');
+        if (password === null) return; // cancelled
+        if (password !== 'magnum') {
+            alert('Incorrect password. Reset aborted.');
+            return;
+        }
+        if (confirm('This will delete ALL readings, photos, and history. Continue?')) {
+            clearAllReadings();
+            alert('All readings have been reset.');
+        }
+    });
 }
 
 // Update entries list with edit/delete buttons
@@ -748,6 +812,57 @@ function updateEntriesList() {
 // Make functions globally available for onclick handlers
 window.editEntry = editEntry;
 window.deleteEntry = deleteEntry;
+
+function isOutOfControl(parameter, value) {
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue)) return false;
+    const config = SPC_CONFIG[parameter];
+    return numericValue >= config.ucl || numericValue <= config.lcl;
+}
+
+function setupAlarmModal() {
+    const alarmCloseBtn = document.getElementById('alarmCloseBtn');
+    if (alarmCloseBtn) {
+        alarmCloseBtn.addEventListener('click', hideAlarmModal);
+    }
+    
+    const alarmModal = document.getElementById('alarmModal');
+    if (alarmModal) {
+        alarmModal.addEventListener('click', function(event) {
+            if (event.target === alarmModal) {
+                hideAlarmModal();
+            }
+        });
+    }
+}
+
+function formatProcessList(processes) {
+    if (processes.length === 1) return processes[0];
+    if (processes.length === 2) return `${processes[0]} and ${processes[1]}`;
+    const last = processes[processes.length - 1];
+    return `${processes.slice(0, -1).join(', ')} and ${last}`;
+}
+
+function showAlarmModal(processNames) {
+    const alarmModal = document.getElementById('alarmModal');
+    const alarmMessage = document.getElementById('alarmMessage');
+    const names = Array.isArray(processNames) ? processNames : [processNames];
+    const processLabel = formatProcessList(names);
+    const pluralSuffix = names.length > 1 ? 'processes' : 'process';
+    const message = `Adjust your ${processLabel} ${pluralSuffix} to get the right Specificaion.`;
+    
+    if (alarmModal && alarmMessage) {
+        alarmMessage.textContent = message;
+        alarmModal.classList.add('show');
+    }
+}
+
+function hideAlarmModal() {
+    const alarmModal = document.getElementById('alarmModal');
+    if (alarmModal) {
+        alarmModal.classList.remove('show');
+    }
+}
 
 // Setup header fields to save on change
 function setupHeaderFields() {
@@ -846,14 +961,73 @@ window.removeImage = function(imageId) {
 function setupSubmitSheet() {
     const submitBtn = document.getElementById('submitSheetBtn');
     if (submitBtn) {
-        submitBtn.addEventListener('click', async function() {
-            await generateShiftReport();
+        submitBtn.addEventListener('click', function() {
+            openESignModal();
+        });
+    }
+    
+    const cancelBtn = document.getElementById('esignCancelBtn');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', function() {
+            closeESignModal();
+        });
+    }
+    
+    const confirmBtn = document.getElementById('esignConfirmBtn');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', async function() {
+            const nameInput = document.getElementById('esignNameInput');
+            if (!nameInput) return;
+            const signerName = nameInput.value.trim();
+            
+            if (!signerName) {
+                nameInput.classList.add('input-error');
+                nameInput.focus();
+                return;
+            }
+            
+            lastESignature = {
+                name: signerName,
+                timestamp: new Date().toISOString()
+            };
+            
+            nameInput.value = '';
+            nameInput.classList.remove('input-error');
+            closeESignModal();
+            await generateShiftReport(lastESignature);
+        });
+    }
+    
+    const nameInput = document.getElementById('esignNameInput');
+    if (nameInput) {
+        nameInput.addEventListener('input', function() {
+            this.classList.remove('input-error');
         });
     }
 }
 
+function openESignModal() {
+    const modal = document.getElementById('esignModal');
+    if (modal) {
+        modal.classList.add('show');
+        setTimeout(() => {
+            const input = document.getElementById('esignNameInput');
+            if (input) {
+                input.focus();
+            }
+        }, 50);
+    }
+}
+
+function closeESignModal() {
+    const modal = document.getElementById('esignModal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
+}
+
 // Generate shift report with LLM summary
-async function generateShiftReport() {
+async function generateShiftReport(signatureData = lastESignature) {
     const reportEl = document.getElementById('shiftReport');
     if (!reportEl) return;
     
@@ -965,8 +1139,15 @@ Provide a professional shift report summary including:
         const summary = await generateLLMSummary(prompt, dataSummary);
         
         // Display report
+        const signatureBlock = signatureData ? `
+            <div class="esign-signature">
+                Digitally signed by <strong>${signatureData.name}</strong> on ${new Date(signatureData.timestamp).toLocaleString()}
+            </div>
+        ` : '';
+        
         reportEl.innerHTML = `
             <h4>Shift Report Summary</h4>
+            ${signatureBlock}
             <div class="shift-report-content">${summary}</div>
         `;
         

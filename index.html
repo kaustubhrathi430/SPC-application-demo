@@ -15,7 +15,7 @@
         <header class="header">
             <div class="header-branding">
                 <div class="logo-container">
-                    <img src="https://logos-world.net/wp-content/uploads/2021/08/Magnum-Logo.png" 
+                    <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQZLPUiCeMXx9ZF3c4fMDQ2n3aXcN0tHmRqQ7MkVcBPzEA5q3Z6T4ZgO3hWd7uJ6lHO8w&usqp=CAU" 
                          alt="Magnum Ice Cream" 
                          class="logo"
                          onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
@@ -121,7 +121,7 @@
                         <div class="form-group">
                             <label for="weightAdjustments">Adjustments</label>
                             <input type="text" id="weightAdjustments" 
-                                   placeholder="Optional (e.g., -crea)" autocomplete="off" class="premium-input">
+                                   placeholder="How did you made it better?" autocomplete="off" class="premium-input">
                         </div>
 
                         <div class="form-group">
@@ -178,6 +178,22 @@
                     </button>
                     <div id="shiftReport" class="shift-report"></div>
                 </div>
+
+                <!-- Reset All Data -->
+                <div class="reset-section premium-card">
+                    <div class="reset-copy">
+                        <h3>Full Reset</h3>
+                        <p>Need to wipe everything and start fresh? Use the secure reset below.</p>
+                    </div>
+                    <button id="resetAllBtn" class="reset-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10M1 14l5.37 5.37A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span>Reset All Readings</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Right Side: SPC Charts -->
@@ -209,6 +225,27 @@
                         <canvas id="coatingChart"></canvas>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alarm Modal -->
+    <div id="alarmModal" class="alarm-modal">
+        <div class="alarm-content premium-card">
+            <p id="alarmMessage">Adjust your process to get the right Specificaion</p>
+            <button id="alarmCloseBtn" class="premium-btn small">Close</button>
+        </div>
+    </div>
+
+    <!-- E-Sign Modal -->
+    <div id="esignModal" class="modal-overlay">
+        <div class="modal-content premium-card">
+            <h4>Sign Shift Report</h4>
+            <p>Please enter your name to e-sign the shift record before submission.</p>
+            <input type="text" id="esignNameInput" class="premium-input" placeholder="Your full name" autocomplete="off">
+            <div class="modal-actions">
+                <button id="esignCancelBtn" class="secondary-btn">Cancel</button>
+                <button id="esignConfirmBtn" class="premium-btn">Sign &amp; Submit</button>
             </div>
         </div>
     </div>
