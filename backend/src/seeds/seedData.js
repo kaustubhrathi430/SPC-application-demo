@@ -211,12 +211,11 @@ const seed = async () => {
     throw err;
   } finally {
     client.release();
-    await pool.end();
   }
 };
 
 if (require.main === module) {
-  seed().then(() => process.exit(0)).catch(() => process.exit(1));
+  seed().then(() => pool.end()).then(() => process.exit(0)).catch(() => process.exit(1));
 }
 
 module.exports = { seed, skus, lines };
