@@ -1,9 +1,9 @@
 const pool = require('../config/database');
 
 const lines = [
-  { name: 'line_1', display_name: 'Line 1', freezer_count: 4 },
-  { name: 'line_2', display_name: 'Line 2', freezer_count: 2 },
-  { name: 'line_3', display_name: 'Line 3', freezer_count: 2 },
+  { name: 'line_1', display_name: 'Klondike 1', freezer_count: 4 },
+  { name: 'line_2', display_name: 'Klondike 2', freezer_count: 2 },
+  { name: 'line_3', display_name: 'Klondike 3', freezer_count: 2 },
 ];
 
 const skus = [

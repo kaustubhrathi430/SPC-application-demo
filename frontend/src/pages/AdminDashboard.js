@@ -3,8 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { getDashboard, getHistory, exportCsv, exportExcel, getReportPdf } from '../utils/api';
 import { formatTime, formatDate, downloadText, downloadBlob } from '../utils/helpers';
 
+const ADMIN_PASSWORD = 'Klondike@12345';
+
 function AdminDashboard({ lines, skus }) {
   const navigate = useNavigate();
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => sessionStorage.getItem('admin_auth') === 'true'
+  );
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [dashboard, setDashboard] = useState(null);
   const [history, setHistory] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -86,6 +93,74 @@ function AdminDashboard({ lines, skus }) {
     }
   };
 
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault();
+    if (passwordInput === ADMIN_PASSWORD) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('admin_auth', 'true');
+      setPasswordError('');
+    } else {
+      setPasswordError('Incorrect password. Please try again.');
+      setPasswordInput('');
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="selection-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="logo-fallback" style={{ marginBottom: '2rem' }}>
+          <div className="logo-text">KLONDIKE</div>
+          <div className="logo-subtext">ADMIN ACCESS</div>
+        </div>
+        <div className="premium-card" style={{ maxWidth: '400px', width: '100%' }}>
+          <div className="card-header">
+            <h3>Admin Dashboard Login</h3>
+          </div>
+          <form onSubmit={handlePasswordSubmit} style={{ padding: '1.5rem' }}>
+            <div className="form-group" style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, color: '#333' }}>
+                Password
+              </label>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(''); }}
+                placeholder="Enter admin password"
+                style={{
+                  width: '100%', padding: '0.75rem', border: '2px solid #e0e0e0',
+                  borderRadius: '8px', fontSize: '1rem',
+                  borderColor: passwordError ? '#f44336' : '#e0e0e0',
+                  boxSizing: 'border-box',
+                }}
+                autoFocus
+              />
+              {passwordError && (
+                <p style={{ color: '#f44336', fontSize: '0.85rem', marginTop: '0.5rem', marginBottom: 0 }}>
+                  {passwordError}
+                </p>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="record-btn"
+              style={{ width: '100%', marginTop: '0.5rem' }}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              className="back-btn"
+              style={{ width: '100%', marginTop: '0.75rem', textAlign: 'center' }}
+              onClick={() => navigate('/')}
+            >
+              Back to Operator View
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="selection-page">
@@ -134,6 +209,13 @@ function AdminDashboard({ lines, skus }) {
             </button>
             <button className="nav-btn" onClick={() => navigate('/')}>
               Operator View
+            </button>
+            <button
+              className="nav-btn"
+              onClick={() => { sessionStorage.removeItem('admin_auth'); setIsAuthenticated(false); }}
+              style={{ color: '#f44336' }}
+            >
+              Logout
             </button>
           </div>
         </div>
