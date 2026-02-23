@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/SPC-application-demo/static/css/main.0babfb6a.css",
+    "main.js": "/SPC-application-demo/static/js/main.ff0a8f3c.js",
+    "index.html": "/SPC-application-demo/index.html",
+    "main.0babfb6a.css.map": "/SPC-application-demo/static/css/main.0babfb6a.css.map",
+    "main.ff0a8f3c.js.map": "/SPC-application-demo/static/js/main.ff0a8f3c.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.0babfb6a.css",
+    "static/js/main.ff0a8f3c.js"
+  ]
+}
