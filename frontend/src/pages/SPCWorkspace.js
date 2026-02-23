@@ -4,11 +4,22 @@ import { useProductionOrder } from '../context/ProductionOrderContext';
 import { useNavigationGuard } from '../hooks/useNavigationGuard';
 import SPCChart from '../components/SPCChart';
 import {
-  getChartData, getMeasurements, createMeasurement,
-  updateMeasurement, createReport, getReportPdf,
-  completeProductionOrder, withRetry,
+  getChartData as apiGetChartData, getMeasurements as apiGetMeasurements,
+  createMeasurement as apiCreateMeasurement, updateMeasurement as apiUpdateMeasurement,
+  createReport as apiCreateReport, getReportPdf as apiGetReportPdf,
+  completeProductionOrder as apiCompleteProductionOrder, withRetry,
 } from '../utils/api';
+import { demoApi } from '../utils/mockData';
 import { formatTime, formatDate, getStatus, getShiftTimeOfDay } from '../utils/helpers';
+
+const IS_DEMO = process.env.REACT_APP_DEMO_MODE === 'true';
+const getChartData = IS_DEMO ? demoApi.getChartData : apiGetChartData;
+const getMeasurements = IS_DEMO ? demoApi.getMeasurements : apiGetMeasurements;
+const createMeasurement = IS_DEMO ? demoApi.createMeasurement : apiCreateMeasurement;
+const updateMeasurement = IS_DEMO ? demoApi.updateMeasurement : apiUpdateMeasurement;
+const createReport = IS_DEMO ? demoApi.createReport : apiCreateReport;
+const getReportPdf = IS_DEMO ? demoApi.getReportPdf : apiGetReportPdf;
+const completeProductionOrder = IS_DEMO ? demoApi.completeProductionOrder : apiCompleteProductionOrder;
 
 function SPCWorkspace({ lines, skus }) {
   const navigate = useNavigate();

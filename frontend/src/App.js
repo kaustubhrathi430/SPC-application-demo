@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ProductionOrderSetup from './pages/ProductionOrderSetup';
 import SPCWorkspace from './pages/SPCWorkspace';
 import AdminDashboard from './pages/AdminDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ProductionOrderProvider } from './context/ProductionOrderContext';
 import { getLines, getSkus } from './utils/api';
+import { MOCK_LINES, MOCK_SKUS } from './utils/mockData';
+
+const IS_DEMO = process.env.REACT_APP_DEMO_MODE === 'true';
 
 function App() {
   const [lines, setLines] = useState([]);
@@ -17,9 +20,14 @@ function App() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [linesData, skusData] = await Promise.all([getLines(), getSkus()]);
-      setLines(linesData);
-      setSkus(skusData);
+      if (IS_DEMO) {
+        setLines(MOCK_LINES);
+        setSkus(MOCK_SKUS);
+      } else {
+        const [linesData, skusData] = await Promise.all([getLines(), getSkus()]);
+        setLines(linesData);
+        setSkus(skusData);
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
       setLoadError('Unable to connect to server. Please check your network connection.');
@@ -71,10 +79,13 @@ function App() {
     );
   }
 
+  // Use HashRouter for GitHub Pages (subdirectory hosting), BrowserRouter for production
+  const Router = IS_DEMO ? HashRouter : BrowserRouter;
+
   return (
     <ErrorBoundary>
       <ProductionOrderProvider>
-        <BrowserRouter>
+        <Router>
           <Routes>
             <Route path="/" element={<ProductionOrderSetup lines={lines} skus={skus} />} />
             <Route path="/workspace" element={<SPCWorkspace lines={lines} skus={skus} />} />
@@ -82,7 +93,7 @@ function App() {
             {/* Redirect old routes to new flow */}
             <Route path="/line/*" element={<Navigate to="/" replace />} />
           </Routes>
-        </BrowserRouter>
+        </Router>
       </ProductionOrderProvider>
     </ErrorBoundary>
   );

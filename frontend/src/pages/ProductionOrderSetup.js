@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProductionOrder } from '../context/ProductionOrderContext';
-import { createProductionOrder, withRetry } from '../utils/api';
+import { createProductionOrder as apiCreateProductionOrder, withRetry } from '../utils/api';
+import { demoApi } from '../utils/mockData';
 import { getTodayShiftDate, formatDate } from '../utils/helpers';
+
+const IS_DEMO = process.env.REACT_APP_DEMO_MODE === 'true';
+const createProductionOrder = IS_DEMO ? demoApi.createProductionOrder : apiCreateProductionOrder;
 
 const STEPS = [
   { key: 'line', label: 'Line' },
