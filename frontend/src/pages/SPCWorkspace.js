@@ -12,16 +12,7 @@ import {
   acknowledgeMeasurement as apiAcknowledgeMeasurement,
   withRetry,
 } from '../utils/api';
-import { demoApi } from '../utils/mockData';
 import { formatTime, formatDate, getStatus, getShiftTimeOfDay } from '../utils/helpers';
-
-const IS_DEMO = process.env.REACT_APP_DEMO_MODE === 'true';
-const getChartData = IS_DEMO ? demoApi.getChartData : apiGetChartData;
-const getMeasurements = IS_DEMO ? demoApi.getMeasurements : apiGetMeasurements;
-const createMeasurement = IS_DEMO ? demoApi.createMeasurement : apiCreateMeasurement;
-const createReport = IS_DEMO ? demoApi.createReport : apiCreateReport;
-const getReportPdf = IS_DEMO ? demoApi.getReportPdf : apiGetReportPdf;
-const completeProductionOrder = IS_DEMO ? demoApi.completeProductionOrder : apiCompleteProductionOrder;
 
 // Generate UUID for idempotency
 function generateClientId() {
@@ -93,7 +84,7 @@ function SPCWorkspace({ lines, skus }) {
 
   // Load freezer config (pump counts)
   useEffect(() => {
-    if (!productionOrder || IS_DEMO) return;
+    if (!productionOrder) return;
     (async () => {
       try {
         const config = await apiGetFreezerConfig(productionOrder.productionOrderId);

@@ -6,11 +6,7 @@ import {
   getActiveOrders as apiGetActiveOrders,
   withRetry,
 } from '../utils/api';
-import { demoApi } from '../utils/mockData';
 import { getTodayShiftDate, formatDate } from '../utils/helpers';
-
-const IS_DEMO = process.env.REACT_APP_DEMO_MODE === 'true';
-const createProductionOrder = IS_DEMO ? demoApi.createProductionOrder : apiCreateProductionOrder;
 
 const STEPS = [
   { key: 'line', label: 'Line' },
@@ -31,7 +27,7 @@ const SHIFTS = [
 
 function ProductionOrderSetup({ lines, skus }) {
   const navigate = useNavigate();
-  const { productionOrder, setOrder, clearOrder, isOrderActive } = useProductionOrder();
+  const { productionOrder, setOrder, clearOrder } = useProductionOrder();
 
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,7 +36,7 @@ function ProductionOrderSetup({ lines, skus }) {
   // Session recovery state
   const [activeOrders, setActiveOrders] = useState([]);
   const [showRecovery, setShowRecovery] = useState(false);
-  const [loadingRecovery, setLoadingRecovery] = useState(!IS_DEMO);
+  const [loadingRecovery, setLoadingRecovery] = useState(true);
 
   // Form state
   const [selectedLine, setSelectedLine] = useState(null);
@@ -50,19 +46,8 @@ function ProductionOrderSetup({ lines, skus }) {
   const [selectedShift, setSelectedShift] = useState(null);
   const [shiftDate, setShiftDate] = useState(getTodayShiftDate);
 
-  // Demo mode can trust the in-browser session directly.
-  useEffect(() => {
-    if (IS_DEMO && isOrderActive) {
-      navigate('/workspace', { replace: true });
-    }
-  }, [isOrderActive, navigate]);
-
   // Session recovery: check for active orders on mount
   useEffect(() => {
-    if (IS_DEMO) {
-      setLoadingRecovery(false);
-      return;
-    }
     let cancelled = false;
     (async () => {
       try {
@@ -143,7 +128,7 @@ function ProductionOrderSetup({ lines, skus }) {
     setIsSubmitting(true);
     setError('');
     try {
-      const order = await withRetry(() => createProductionOrder({
+      const order = await withRetry(() => apiCreateProductionOrder({
         line_id: selectedLine.id,
         sku_id: selectedSku.id,
         po_number: poNumber.trim(),

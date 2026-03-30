@@ -6,7 +6,6 @@ import AdminDashboard from './pages/AdminDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ProductionOrderProvider } from './context/ProductionOrderContext';
 import { getLines, getSkus } from './utils/api';
-import { MOCK_LINES, MOCK_SKUS } from './utils/mockData';
 
 const IS_DEMO = process.env.REACT_APP_DEMO_MODE === 'true';
 
@@ -20,14 +19,9 @@ function App() {
     setLoading(true);
     setLoadError(null);
     try {
-      if (IS_DEMO) {
-        setLines(MOCK_LINES);
-        setSkus(MOCK_SKUS);
-      } else {
-        const [linesData, skusData] = await Promise.all([getLines(), getSkus()]);
-        setLines(linesData);
-        setSkus(skusData);
-      }
+      const [linesData, skusData] = await Promise.all([getLines(), getSkus()]);
+      setLines(linesData);
+      setSkus(skusData);
     } catch (err) {
       console.error('Failed to load initial data:', err);
       setLoadError('Unable to connect to server. Please check your network connection.');
