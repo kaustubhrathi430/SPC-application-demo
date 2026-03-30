@@ -89,7 +89,7 @@ function App() {
           <Routes>
             <Route path="/" element={<ProductionOrderSetup lines={lines} skus={skus} />} />
             <Route path="/workspace" element={<SPCWorkspace lines={lines} skus={skus} />} />
-            <Route path="/admin" element={<AdminDashboard lines={lines} skus={skus} />} />
+            <Route path="/admin" element={<AdminDashboard lines={lines} skus={skus} onConfigChanged={fetchData} />} />
             {/* Redirect old routes to new flow */}
             <Route path="/line/*" element={<Navigate to="/" replace />} />
           </Routes>

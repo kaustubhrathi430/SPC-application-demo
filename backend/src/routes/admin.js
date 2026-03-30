@@ -8,6 +8,16 @@ const {
   verifyPassword, hashPassword, getSession,
 } = require('../middleware/auth');
 
+const CORRECTION_REASON_CODES = new Set([
+  'transcription_error',
+  'wrong_freezer_or_pump',
+  'wrong_operator_or_shift',
+  'instrument_error',
+  'approved_rework_adjustment',
+  'attachment_fix',
+  'other',
+]);
+
 // ============================================================
 // AUTH ENDPOINTS (no middleware — these are the login routes)
 // ============================================================
@@ -230,15 +240,90 @@ router.get('/production-orders/:id/measurements', requireAdmin, async (req, res)
   }
 });
 
+// GET /api/admin/production-orders/:id/detail — Batch detail with measurements, report, and audit trail
+router.get('/production-orders/:id/detail', requireAdmin, async (req, res) => {
+  try {
+    const orderResult = await pool.query(
+      `SELECT po.*, s.product_name, s.product_code, s.cr_code, s.startup_cup_weight_target,
+              l.display_name AS line_name
+       FROM production_orders po
+       JOIN skus s ON po.sku_id = s.id
+       JOIN lines l ON po.line_id = l.id
+       WHERE po.id = $1`,
+      [req.params.id]
+    );
+
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Production order not found' });
+    }
+
+    const order = orderResult.rows[0];
+    const measurementsResult = await pool.query(
+      `SELECT m.*, s.product_name, s.product_code, l.display_name AS line_name
+       FROM measurements m
+       JOIN skus s ON m.sku_id = s.id
+       JOIN lines l ON m.line_id = l.id
+       WHERE m.production_order_id = $1
+       ORDER BY m.freezer_number, m.pump_number, m.recorded_at`,
+      [req.params.id]
+    );
+
+    const reportResult = await pool.query(
+      `SELECT *
+       FROM shift_reports
+       WHERE production_order_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [req.params.id]
+    );
+    const report = reportResult.rows[0] || null;
+
+    const measurementIds = measurementsResult.rows.map((row) => row.id);
+    const auditParams = [req.params.id];
+    let auditQuery = `
+      SELECT *
+      FROM audit_log
+      WHERE (table_name = 'production_orders' AND record_id = $1)
+    `;
+    if (report) {
+      auditParams.push(report.id);
+      auditQuery += ` OR (table_name = 'shift_reports' AND record_id = $2)`;
+    }
+    if (measurementIds.length > 0) {
+      auditParams.push(measurementIds);
+      auditQuery += ` OR (table_name = 'measurements' AND record_id = ANY($${auditParams.length}::int[]))`;
+    }
+    auditQuery += ' ORDER BY created_at DESC';
+
+    const auditResult = await pool.query(auditQuery, auditParams);
+
+    res.json({
+      order,
+      report,
+      measurements: measurementsResult.rows,
+      audit: auditResult.rows,
+    });
+  } catch (err) {
+    console.error('Error fetching production order detail:', err);
+    res.status(500).json({ error: 'Failed to fetch production order detail' });
+  }
+});
+
 // POST /api/admin/measurements/:id/correct — Admin correction with audit trail
 router.post('/measurements/:id/correct', requireAdmin, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { thickness_value, weight_value, coating_value, reason } = req.body;
+    const {
+      thickness_value, weight_value, coating_value,
+      reason_code, reason_comment,
+    } = req.body;
     const measurementId = req.params.id;
 
-    if (!reason || reason.trim().length === 0) {
-      return res.status(400).json({ error: 'Reason is required for corrections' });
+    if (!reason_code || !CORRECTION_REASON_CODES.has(reason_code)) {
+      return res.status(400).json({ error: 'A valid reason_code is required for corrections' });
+    }
+    if (!reason_comment || reason_comment.trim().length === 0) {
+      return res.status(400).json({ error: 'reason_comment is required for corrections' });
     }
 
     await client.query('BEGIN');
@@ -289,13 +374,17 @@ router.post('/measurements/:id/correct', requireAdmin, async (req, res) => {
       [
         measurementId,
         req.session.username || 'admin',
-        reason.trim(),
+        `${reason_code}: ${reason_comment.trim()}`,
         JSON.stringify({
           thickness_value: old.thickness_value,
           weight_value: old.weight_value,
           coating_value: old.coating_value,
         }),
-        JSON.stringify(updates),
+        JSON.stringify({
+          ...updates,
+          reason_code,
+          reason_comment: reason_comment.trim(),
+        }),
       ]
     );
 
@@ -587,7 +676,14 @@ router.get('/export/excel', requireAdmin, async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    const workbook = new ExcelJS.Workbook();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=spc-data-export.xlsx');
+
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: true,
+    });
     workbook.creator = 'SPC Control Chart System - Plant #1352';
     workbook.created = new Date();
 
@@ -642,14 +738,9 @@ router.get('/export/excel', requireAdmin, async (req, res) => {
         coating: row.coating_value ? parseFloat(row.coating_value) : null,
         status: row.status_overall || '',
         adjustments: row.adjustments || '',
-      });
+      }).commit();
     }
-
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=spc-data-export.xlsx');
-
-    await workbook.xlsx.write(res);
-    res.end();
+    await workbook.commit();
   } catch (err) {
     console.error('Error exporting Excel:', err);
     if (!res.headersSent) {

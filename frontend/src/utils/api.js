@@ -101,6 +101,7 @@ export const getReports = (params) => {
 };
 export const getReport = (id) => request(`/reports/${id}`);
 export const getReportPdf = (id) => request(`/reports/${id}/pdf`);
+export const getReportCsv = (id) => request(`/reports/${id}/csv`);
 
 // Production Orders
 export const createProductionOrder = (data) =>
@@ -151,13 +152,98 @@ export const getProductionOrdersAdmin = (params) => {
   const query = new URLSearchParams(params).toString();
   return request(`/admin/production-orders?${query}`, { credentials: 'include' });
 };
+export const getProductionOrderDetail = (id) =>
+  request(`/admin/production-orders/${id}/detail`, { credentials: 'include' });
 export const reviewProductionOrder = (id, reviewed_by) =>
   request(`/admin/production-orders/${id}/review`, {
     method: 'PUT',
     body: JSON.stringify({ reviewed_by }),
     credentials: 'include',
   });
+export const correctMeasurement = (id, data) =>
+  request(`/admin/measurements/${id}/correct`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+export const getBatchCsv = (id) =>
+  request(`/admin/production-orders/${id}/csv`, { credentials: 'include' });
 export const getAuditLog = (params) => {
   const query = new URLSearchParams(params).toString();
   return request(`/admin/audit-log?${query}`, { credentials: 'include' });
 };
+
+// Master config
+export const getMasterSkus = () =>
+  request('/admin/master-config/skus', { credentials: 'include' });
+export const createMasterSku = (data) =>
+  request('/admin/master-config/skus', {
+    method: 'POST',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+export const updateMasterSku = (id, data) =>
+  request(`/admin/master-config/skus/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+export const deactivateMasterSku = (id, confirm_active_orders = false) =>
+  request(`/admin/master-config/skus/${id}/deactivate`, {
+    method: 'POST',
+    body: JSON.stringify({ confirm_active_orders }),
+    credentials: 'include',
+  });
+export const reactivateMasterSku = (id) =>
+  request(`/admin/master-config/skus/${id}/reactivate`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    credentials: 'include',
+  });
+export const getMasterLines = () =>
+  request('/admin/master-config/lines', { credentials: 'include' });
+export const createMasterLine = (data) =>
+  request('/admin/master-config/lines', {
+    method: 'POST',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+export const updateMasterLine = (id, data) =>
+  request(`/admin/master-config/lines/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  });
+export const updateMasterLineFreezers = (id, freezers) =>
+  request(`/admin/master-config/lines/${id}/freezers`, {
+    method: 'PUT',
+    body: JSON.stringify({ freezers }),
+    credentials: 'include',
+  });
+export const updateAdminPassword = (new_password) =>
+  request('/admin/master-config/passwords/admin', {
+    method: 'PUT',
+    body: JSON.stringify({ new_password }),
+    credentials: 'include',
+  });
+export const updateMyPassword = (current_password, new_password) =>
+  request('/admin/master-config/passwords/me', {
+    method: 'PUT',
+    body: JSON.stringify({ current_password, new_password }),
+    credentials: 'include',
+  });
+export const getMasterAccounts = () =>
+  request('/admin/master-config/master-accounts', { credentials: 'include' });
+export const createMasterAccount = (username, password) =>
+  request('/admin/master-config/master-accounts', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+    credentials: 'include',
+  });
+export const deleteMasterAccount = (id) =>
+  request(`/admin/master-config/master-accounts/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+export const getMasterHealth = () =>
+  request('/admin/master-config/health', { credentials: 'include' });

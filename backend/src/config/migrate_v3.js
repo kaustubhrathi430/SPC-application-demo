@@ -108,15 +108,28 @@ const migrateV3 = async () => {
     // 7. LINES — add asset_id
     // ============================================================
     await client.query(`ALTER TABLE lines ADD COLUMN IF NOT EXISTS asset_id VARCHAR(50)`);
+    await client.query(`ALTER TABLE lines ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`);
 
     // ============================================================
-    // 8. INDEXES — performance for 5-year data volume
+    // 8. MEASUREMENT_IMAGES — retain legacy base64, add filesystem metadata
+    // ============================================================
+    await client.query(`ALTER TABLE measurement_images ALTER COLUMN data DROP NOT NULL`);
+    await client.query(`ALTER TABLE measurement_images ADD COLUMN IF NOT EXISTS storage_path TEXT`);
+    await client.query(`ALTER TABLE measurement_images ADD COLUMN IF NOT EXISTS sha256 VARCHAR(64)`);
+    await client.query(`ALTER TABLE measurement_images ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100)`);
+    await client.query(`ALTER TABLE measurement_images ADD COLUMN IF NOT EXISTS size_bytes BIGINT`);
+
+    // ============================================================
+    // 9. INDEXES — performance for 5-year data volume
     // ============================================================
     await client.query(`CREATE INDEX IF NOT EXISTS idx_measurements_composite ON measurements(line_id, shift_date, freezer_number, pump_number)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_measurements_po_recorded ON measurements(production_order_id, recorded_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_measurements_po ON measurements(production_order_id, recorded_at DESC)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_measurements_pump ON measurements(freezer_number, pump_number)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_production_orders_po_number ON production_orders(po_number)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_production_orders_po ON production_orders(po_number)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_shift_reports_created_desc ON shift_reports(created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_shift_reports_created ON shift_reports(created_at DESC)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_measurement_images_mid ON measurement_images(measurement_id)`);
     await client.query(`ALTER TABLE shift_reports ADD COLUMN IF NOT EXISTS production_order_id INTEGER`);
     await client.query(`ALTER TABLE shift_reports ADD COLUMN IF NOT EXISTS po_number VARCHAR(50)`);
@@ -132,7 +145,7 @@ const migrateV3 = async () => {
     }
 
     // ============================================================
-    // 9. SEED LINE_FREEZERS from existing lines data
+    // 10. SEED LINE_FREEZERS from existing lines data
     // ============================================================
     const existingFreezerRows = await client.query(`SELECT COUNT(*) as cnt FROM line_freezers`);
     if (parseInt(existingFreezerRows.rows[0].cnt) === 0) {

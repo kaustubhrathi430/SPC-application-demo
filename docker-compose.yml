@@ -12,6 +12,7 @@ services:
       POSTGRES_PASSWORD: spc_password
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
     ports:
       - "5432:5432"
     healthcheck:
@@ -35,8 +36,14 @@ services:
       DB_NAME: spc_db
       DB_USER: spc_user
       DB_PASSWORD: spc_password
+      SPC_IMAGE_ROOT: /data/spc-images
+      SPC_BACKUP_ROOT: /backups
+      REQUEST_LOG_DIR: /data/logs
     ports:
       - "3001:3001"
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
     depends_on:
       db:
         condition: service_healthy

@@ -1,12 +1,24 @@
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
-const router = express.Router();
-const pool = require('../config/database');
 const multer = require('multer');
+const pool = require('../config/database');
+
+const router = express.Router();
+
+const IMAGE_ROOT = process.env.SPC_IMAGE_ROOT || '/data/spc-images';
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
-// Compute OOC status based on SKU limits
+const EXT_BY_MIME = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
 function computeStatus(measurement, sku) {
   const checks = [
     { val: measurement.thickness_value, lcl: sku.thickness_lcl, lwl: sku.thickness_lwl, uwl: sku.thickness_uwl, ucl: sku.thickness_ucl },
@@ -15,13 +27,50 @@ function computeStatus(measurement, sku) {
   ];
 
   let status = 'in_control';
-  for (const c of checks) {
-    if (c.val == null) continue;
-    const v = parseFloat(c.val);
-    if (v < parseFloat(c.lcl) || v > parseFloat(c.ucl)) return 'ooc';
-    if (v < parseFloat(c.lwl) || v > parseFloat(c.uwl)) status = 'warning';
+  for (const check of checks) {
+    if (check.val == null) continue;
+    const value = parseFloat(check.val);
+    if (value < parseFloat(check.lcl) || value > parseFloat(check.ucl)) return 'ooc';
+    if (value < parseFloat(check.lwl) || value > parseFloat(check.uwl)) status = 'warning';
   }
   return status;
+}
+
+function getImageExtension(file) {
+  const originalExt = path.extname(file.originalname || '').toLowerCase();
+  if (originalExt) return originalExt;
+  return EXT_BY_MIME[file.mimetype] || '.bin';
+}
+
+function buildImagePath(sha256, extension, recordedAt) {
+  const stamp = recordedAt instanceof Date ? recordedAt : new Date(recordedAt);
+  const year = String(stamp.getUTCFullYear());
+  const month = String(stamp.getUTCMonth() + 1).padStart(2, '0');
+  const relativePath = path.join(year, month, `${sha256}${extension}`);
+  return {
+    relativePath,
+    absolutePath: path.join(IMAGE_ROOT, relativePath),
+  };
+}
+
+async function getProductionOrderStatus(client, productionOrderId) {
+  if (!productionOrderId) return null;
+  const result = await client.query(
+    'SELECT id, status FROM production_orders WHERE id = $1',
+    [productionOrderId]
+  );
+  return result.rows[0] || null;
+}
+
+async function getMeasurementLockState(client, measurementId) {
+  const result = await client.query(
+    `SELECT m.id, m.production_order_id, po.status
+     FROM measurements m
+     LEFT JOIN production_orders po ON po.id = m.production_order_id
+     WHERE m.id = $1`,
+    [measurementId]
+  );
+  return result.rows[0] || null;
 }
 
 // GET /api/measurements - Get measurements with filters
@@ -30,7 +79,7 @@ router.get('/', async (req, res) => {
     const { sku_id, line_id, shift, shift_date, freezer_number, pump_number, limit = 50 } = req.query;
 
     let query = `
-      SELECT m.*, s.product_name, s.product_code, l.display_name as line_name
+      SELECT m.*, s.product_name, s.product_code, l.display_name AS line_name
       FROM measurements m
       JOIN skus s ON m.sku_id = s.id
       JOIN lines l ON m.line_id = l.id
@@ -47,7 +96,7 @@ router.get('/', async (req, res) => {
     if (pump_number) { query += ` AND m.pump_number = $${paramIdx++}`; params.push(pump_number); }
 
     query += ` ORDER BY m.recorded_at DESC LIMIT $${paramIdx}`;
-    params.push(parseInt(limit));
+    params.push(parseInt(limit, 10));
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -91,7 +140,7 @@ router.get('/chart-data', async (req, res) => {
   }
 });
 
-// POST /api/measurements - Record a new measurement (with idempotency + OOC status)
+// POST /api/measurements - Record a new measurement
 router.post('/', upload.array('photos', 5), async (req, res) => {
   const client = await pool.connect();
   try {
@@ -104,111 +153,137 @@ router.post('/', upload.array('photos', 5), async (req, res) => {
     if (!sku_id || !line_id || !freezer_number || !operator_initials) {
       return res.status(400).json({ error: 'Missing required fields: sku_id, line_id, freezer_number, operator_initials' });
     }
-
-    // Check if production order is reviewed (locked)
-    if (production_order_id) {
-      const poCheck = await client.query(
-        'SELECT status FROM production_orders WHERE id = $1',
-        [production_order_id]
-      );
-      if (poCheck.rows.length > 0 && poCheck.rows[0].status === 'reviewed') {
-        return res.status(409).json({ error: 'Order is reviewed and locked. No new measurements allowed.' });
-      }
+    if (!client_id) {
+      return res.status(400).json({ error: 'client_id is required' });
     }
 
-    // Idempotency: if client_id provided, check for existing
-    if (client_id) {
-      const existing = await client.query(
-        'SELECT * FROM measurements WHERE client_id = $1',
-        [client_id]
-      );
-      if (existing.rows.length > 0) {
-        return res.status(200).json(existing.rows[0]);
-      }
+    const productionOrder = await getProductionOrderStatus(client, production_order_id);
+    if (productionOrder && productionOrder.status === 'reviewed') {
+      return res.status(409).json({ error: 'Order is reviewed and locked. No new measurements allowed.' });
     }
 
-    // Validate shift
     const validShifts = ['A', 'B', 'C', 'D'];
     let resolvedShift = shift;
     if (!resolvedShift || !validShifts.includes(resolvedShift)) {
-      const now = new Date();
-      const hour = now.getHours();
+      const hour = new Date().getHours();
       resolvedShift = (hour >= 6 && hour < 18) ? 'A' : 'B';
     }
 
-    // Resolve shift date
     let shiftDateStr = shift_date;
     if (!shiftDateStr) {
       const now = new Date();
-      const hour = now.getHours();
-      let sd = new Date(now);
-      if (hour < 6) sd.setDate(sd.getDate() - 1);
-      shiftDateStr = sd.toISOString().split('T')[0];
+      if (now.getHours() < 6) now.setDate(now.getDate() - 1);
+      shiftDateStr = now.toISOString().split('T')[0];
     }
 
-    // Get SKU for OOC computation
     const skuResult = await client.query('SELECT * FROM skus WHERE id = $1', [sku_id]);
     if (skuResult.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid sku_id' });
     }
     const sku = skuResult.rows[0];
-
-    // Compute OOC status
-    const statusOverall = computeStatus(
-      { thickness_value, weight_value, coating_value },
-      sku
-    );
+    const statusOverall = computeStatus({ thickness_value, weight_value, coating_value }, sku);
 
     await client.query('BEGIN');
 
     const measurementResult = await client.query(
-      `INSERT INTO measurements (
-        sku_id, line_id, freezer_number, pump_number, shift, shift_date,
-        operator_initials, lead_initials,
-        thickness_value, weight_value, coating_value,
-        adjustments, best_buy_code, production_order_id,
-        client_id, status_overall, recorded_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
-      RETURNING *`,
+      `WITH inserted AS (
+         INSERT INTO measurements (
+           sku_id, line_id, freezer_number, pump_number, shift, shift_date,
+           operator_initials, lead_initials,
+           thickness_value, weight_value, coating_value,
+           adjustments, best_buy_code, production_order_id,
+           client_id, status_overall, recorded_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6,
+           $7, $8, $9, $10, $11,
+           $12, $13, $14,
+           $15, $16, NOW()
+         )
+         ON CONFLICT (client_id) DO NOTHING
+         RETURNING *, true AS inserted
+       )
+       SELECT * FROM inserted
+       UNION ALL
+       SELECT m.*, false AS inserted
+       FROM measurements m
+       WHERE m.client_id = $15
+         AND NOT EXISTS (SELECT 1 FROM inserted)
+       LIMIT 1`,
       [
-        sku_id, line_id, freezer_number, parseInt(pump_number) || 1,
-        resolvedShift, shiftDateStr,
-        operator_initials, lead_initials || null,
-        thickness_value || null, weight_value || null, coating_value || null,
-        adjustments || null, best_buy_code || null, production_order_id || null,
-        client_id || null, statusOverall,
+        sku_id,
+        line_id,
+        freezer_number,
+        parseInt(pump_number, 10) || 1,
+        resolvedShift,
+        shiftDateStr,
+        operator_initials.trim(),
+        lead_initials || null,
+        thickness_value || null,
+        weight_value || null,
+        coating_value || null,
+        adjustments || null,
+        best_buy_code || null,
+        production_order_id || null,
+        client_id,
+        statusOverall,
       ]
     );
 
     const measurement = measurementResult.rows[0];
+    const wasInserted = Boolean(measurement.inserted);
 
-    // Audit log
-    await client.query(
-      `INSERT INTO audit_log (table_name, record_id, action, changed_by, new_values)
-       VALUES ('measurements', $1, 'INSERT', $2, $3)`,
-      [measurement.id, operator_initials, JSON.stringify({
-        freezer_number, pump_number: parseInt(pump_number) || 1,
-        thickness_value, weight_value, coating_value, status_overall: statusOverall,
-      })]
-    );
+    if (wasInserted) {
+      await client.query(
+        `INSERT INTO audit_log (table_name, record_id, action, changed_by, new_values)
+         VALUES ('measurements', $1, 'INSERT', $2, $3)`,
+        [
+          measurement.id,
+          operator_initials.trim(),
+          JSON.stringify({
+            production_order_id: production_order_id || null,
+            freezer_number,
+            pump_number: parseInt(pump_number, 10) || 1,
+            thickness_value,
+            weight_value,
+            coating_value,
+            status_overall: statusOverall,
+          }),
+        ]
+      );
 
-    // Handle image uploads
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const base64Data = file.buffer.toString('base64');
-        await client.query(
-          `INSERT INTO measurement_images (measurement_id, filename, data)
-           VALUES ($1, $2, $3)`,
-          [measurement.id, file.originalname, base64Data]
-        );
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
+          const extension = getImageExtension(file);
+          const { relativePath, absolutePath } = buildImagePath(sha256, extension, measurement.recorded_at);
+
+          fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+          if (!fs.existsSync(absolutePath)) {
+            fs.writeFileSync(absolutePath, file.buffer);
+          }
+
+          await client.query(
+            `INSERT INTO measurement_images (
+              measurement_id, filename, data, storage_path, sha256, mime_type, size_bytes
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              measurement.id,
+              file.originalname,
+              null,
+              relativePath,
+              sha256,
+              file.mimetype || 'application/octet-stream',
+              file.size,
+            ]
+          );
+        }
       }
     }
 
     await client.query('COMMIT');
 
-    // Return with OOC info for frontend acknowledgment
-    const requiresAck = statusOverall === 'ooc' || statusOverall === 'warning';
-    res.status(201).json({ ...measurement, requires_ack: requiresAck });
+    const requiresAck = measurement.status_overall === 'ooc' || measurement.status_overall === 'warning';
+    res.status(wasInserted ? 201 : 200).json({ ...measurement, requires_ack: requiresAck });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error recording measurement:', err);
@@ -228,7 +303,6 @@ router.post('/:id/ack', async (req, res) => {
     }
 
     await client.query('BEGIN');
-
     const result = await client.query(
       `UPDATE measurements
        SET alert_acknowledged_at = NOW(), alert_acknowledged_by = $1
@@ -266,7 +340,44 @@ router.post('/:id/ack', async (req, res) => {
   }
 });
 
-// PUT and DELETE removed — operators cannot edit after submit.
-// Corrections are done via admin endpoint: POST /api/admin/measurements/:id/correct
+// PUT /api/measurements/:id - Operators cannot edit after submit
+router.put('/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const measurement = await getMeasurementLockState(client, req.params.id);
+    if (!measurement) {
+      return res.status(404).json({ error: 'Measurement not found' });
+    }
+    if (measurement.status === 'reviewed') {
+      return res.status(409).json({ error: 'Order is reviewed and locked.' });
+    }
+    return res.status(403).json({ error: 'Operator edits are disabled. Use the admin correction flow.' });
+  } catch (err) {
+    console.error('Error enforcing operator edit policy:', err);
+    res.status(500).json({ error: 'Failed to enforce edit policy' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/measurements/:id - Operators cannot delete after submit
+router.delete('/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const measurement = await getMeasurementLockState(client, req.params.id);
+    if (!measurement) {
+      return res.status(404).json({ error: 'Measurement not found' });
+    }
+    if (measurement.status === 'reviewed') {
+      return res.status(409).json({ error: 'Order is reviewed and locked.' });
+    }
+    return res.status(403).json({ error: 'Operator deletions are disabled.' });
+  } catch (err) {
+    console.error('Error enforcing operator delete policy:', err);
+    res.status(500).json({ error: 'Failed to enforce delete policy' });
+  } finally {
+    client.release();
+  }
+});
 
 module.exports = router;

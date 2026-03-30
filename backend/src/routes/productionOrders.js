@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { requireAdmin } = require('../middleware/auth');
 
 // POST /api/production-orders - Create a new production order
 router.post('/', async (req, res) => {
@@ -17,7 +18,7 @@ router.post('/', async (req, res) => {
     }
 
     // Verify line exists
-    const lineCheck = await pool.query('SELECT id FROM lines WHERE id = $1', [line_id]);
+    const lineCheck = await pool.query('SELECT id FROM lines WHERE id = $1 AND active = true', [line_id]);
     if (lineCheck.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid line_id' });
     }
@@ -62,6 +63,17 @@ router.get('/active', async (req, res) => {
 // PUT /api/production-orders/:id/complete - Complete a production order
 router.put('/:id/complete', async (req, res) => {
   try {
+    const existing = await pool.query(
+      'SELECT status FROM production_orders WHERE id = $1',
+      [req.params.id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Production order not found' });
+    }
+    if (existing.rows[0].status === 'reviewed') {
+      return res.status(409).json({ error: 'Order is reviewed and locked.' });
+    }
+
     const result = await pool.query(
       `UPDATE production_orders
        SET status = 'completed', completed_at = NOW()
@@ -76,6 +88,51 @@ router.put('/:id/complete', async (req, res) => {
   } catch (err) {
     console.error('Error completing production order:', err);
     res.status(500).json({ error: 'Failed to complete production order' });
+  }
+});
+
+// PUT /api/production-orders/:id/review - Review and lock a production order
+router.put('/:id/review', requireAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { reviewed_by } = req.body;
+    if (!reviewed_by || !reviewed_by.trim()) {
+      return res.status(400).json({ error: 'reviewed_by is required' });
+    }
+
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      `UPDATE production_orders
+       SET status = 'reviewed', reviewed_at = NOW(), reviewed_by = $1
+       WHERE id = $2 AND status = 'completed'
+       RETURNING *`,
+      [reviewed_by.trim(), req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Order must be in completed status to review' });
+    }
+
+    await client.query(
+      `INSERT INTO audit_log (table_name, record_id, action, changed_by, new_values)
+       VALUES ('production_orders', $1, 'UPDATE', $2, $3)`,
+      [
+        req.params.id,
+        req.session.username || 'admin',
+        JSON.stringify({ status: 'reviewed', reviewed_by: reviewed_by.trim() }),
+      ]
+    );
+
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error reviewing production order:', err);
+    res.status(500).json({ error: 'Failed to review production order' });
+  } finally {
+    client.release();
   }
 });
 
