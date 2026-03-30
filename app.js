@@ -34,11 +34,17 @@ let thicknessChart, weightChart, coatingChart;
 
 // Global variables for images
 let attachedImages = [];
+// Cache for data to avoid constant fetching for small updates
+let cachedData = {
+    thickness: [],
+    weight: [],
+    coating: []
+};
 
 // Initialize the application
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     initializeCharts();
-    loadData();
+    loadData(); // This is now async, but we don't await it here
     setupFormHandler();
     setupClearButton();
     setupSubmitSheet();
@@ -51,13 +57,13 @@ document.addEventListener('DOMContentLoaded', function() {
 // Update current timestamp display
 function updateTimestamp() {
     const now = new Date();
-    const dateStr = now.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric' 
+    const dateStr = now.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
     });
-    const timeStr = now.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
+    const timeStr = now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
         minute: '2-digit',
         second: '2-digit'
     });
@@ -71,10 +77,10 @@ function updateTimestamp() {
 function getCurrentDateTime() {
     const now = new Date();
     return {
-        date: now.toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            year: 'numeric' 
+        date: now.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
         }),
         time: getCurrentTime(),
         timestamp: now.toISOString(),
@@ -123,13 +129,13 @@ function initializeCharts() {
 // Create SPC Chart with control limits and smooth curves
 function createSPCChart(ctx, parameter) {
     const config = SPC_CONFIG[parameter];
-    
+
     // Calculate Y-axis range with padding
     const range = config.ucl - config.lcl;
     const padding = range * 0.2;
     const min = config.lcl - padding;
     const max = config.ucl + padding;
-    
+
     return new Chart(ctx, {
         type: 'line',
         data: {
@@ -254,7 +260,7 @@ function createSPCChart(ctx, parameter) {
                     min: min,
                     max: max,
                     grid: {
-                        color: function(context) {
+                        color: function (context) {
                             const value = context.tick.value;
                             if (Math.abs(value - config.target) < 0.01) {
                                 return 'rgba(0, 200, 83, 0.2)';
@@ -293,12 +299,12 @@ function createSPCChart(ctx, parameter) {
 // Update chart with new data
 function updateChart(chart, parameter, data) {
     const config = SPC_CONFIG[parameter];
-    
+
     if (!chart) {
         console.error(`Chart not initialized for parameter: ${parameter}`);
         return;
     }
-    
+
     if (!data || data.length === 0) {
         // Initialize with empty data but show control limits
         chart.data.labels = ['Start'];
@@ -321,7 +327,7 @@ function updateChart(chart, parameter, data) {
     // Update labels and data points
     chart.data.labels = sortedData.map(entry => formatTime(entry.time));
     chart.data.datasets[0].data = sortedData.map(entry => entry.value);
-    
+
     // Update control limit lines
     const length = sortedData.length;
     chart.data.datasets[1].data = new Array(length).fill(config.target); // Target
@@ -349,99 +355,79 @@ function updateChart(chart, parameter, data) {
 function updateChartStats(parameter, data) {
     const config = SPC_CONFIG[parameter];
     const statsEl = document.getElementById(`${parameter}Stats`);
-    
+
     if (!statsEl) return;
-    
+
     if (data.length === 0) {
         statsEl.textContent = 'No data';
         return;
     }
-    
+
     const latest = data[data.length - 1];
     const status = latest.value <= config.lcl || latest.value >= config.ucl ? 'Out' :
-                   latest.value <= config.lwl || latest.value >= config.uwl ? 'Warning' : 'OK';
-    
+        latest.value <= config.lwl || latest.value >= config.uwl ? 'Warning' : 'OK';
+
     statsEl.textContent = `Latest: ${latest.value} | Status: ${status}`;
 }
 
-// Save data to localStorage
+// Save data to localStorage - DEPRECATED in favor of API
+// Keeping this empty function to prevent errors if called,
+// though we should remove calls to it.
 function saveData() {
-    const data = {
-        thickness: getData('thickness'),
-        weight: getData('weight'),
-        coating: getData('coating'),
-        productCode: document.getElementById('productCode')?.value || '9573493',
-        productName: document.getElementById('productName')?.value || 'Klondike Chocolate/Chocolate',
-        freezerName: document.getElementById('freezerName')?.value || '2',
-        images: attachedImages
-    };
-    localStorage.setItem('spcData', JSON.stringify(data));
+    // No-op: Data is now saved per-action via API
+    console.log('saveData called - no-op in API mode');
 }
 
-// Load data from localStorage
-function loadData() {
-    const saved = localStorage.getItem('spcData');
-    if (saved) {
-        try {
-            const data = JSON.parse(saved);
-            // Always update charts, even if empty
-            updateChart(thicknessChart, 'thickness', data.thickness || []);
-            updateChart(weightChart, 'weight', data.weight || []);
-            updateChart(coatingChart, 'coating', data.coating || []);
-            
-            if (data.productCode) {
-                const productCodeInput = document.getElementById('productCode');
-                if (productCodeInput) productCodeInput.value = data.productCode;
-            }
-            if (data.productName) {
-                const productNameInput = document.getElementById('productName');
-                if (productNameInput) productNameInput.value = data.productName;
-            }
-            if (data.freezerName) {
-                const freezerNameInput = document.getElementById('freezerName');
-                if (freezerNameInput) freezerNameInput.value = data.freezerName;
-            }
-            if (data.images) {
-                attachedImages = data.images;
-                updateImagePreview();
-            }
-        } catch (e) {
-            console.error('Error loading data:', e);
-        }
-    } else {
-        // Initialize empty charts
+// Load data from Server
+async function loadData() {
+    try {
+        const response = await fetch('/api/data');
+        if (!response.ok) throw new Error('Failed to fetch data');
+
+        const data = await response.json();
+
+        // Update cache
+        cachedData.thickness = data.thickness || [];
+        cachedData.weight = data.weight || [];
+        cachedData.coating = data.coating || [];
+        if (data.images) attachedImages = data.images;
+
+        // Update charts
+        updateChart(thicknessChart, 'thickness', cachedData.thickness);
+        updateChart(weightChart, 'weight', cachedData.weight);
+        updateChart(coatingChart, 'coating', cachedData.coating);
+
+        // Update entries list
+        updateEntriesList();
+
+        // Update images
+        updateImagePreview();
+
+    } catch (e) {
+        console.error('Error loading data:', e);
+        // Initialize empty charts on error
         updateChart(thicknessChart, 'thickness', []);
         updateChart(weightChart, 'weight', []);
         updateChart(coatingChart, 'coating', []);
     }
-    updateEntriesList();
 }
 
 // Get data for a parameter
+// Get data for a parameter from cache
 function getData(parameter) {
-    const saved = localStorage.getItem('spcData');
-    if (saved) {
-        try {
-            const data = JSON.parse(saved);
-            return data[parameter] || [];
-        } catch (e) {
-            return [];
-        }
-    }
-    return [];
+    return cachedData[parameter] || [];
 }
 
 // Add data point with shared timestamp
-function addDataPointWithTimestamp(parameter, value, operator, adjustments = '', sharedTimestamp) {
-    const data = getData(parameter);
+async function addDataPointWithTimestamp(parameter, value, operator, adjustments = '', sharedTimestamp) {
     const dateTime = getCurrentDateTime();
-    
+
     // Use shared timestamp if provided, otherwise create new
     const timestamp = sharedTimestamp || dateTime.timestamp;
-    const date = sharedTimestamp ? new Date(sharedTimestamp).toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric' 
+    const date = sharedTimestamp ? new Date(sharedTimestamp).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
     }) : dateTime.date;
     const time = sharedTimestamp ? (() => {
         const d = new Date(sharedTimestamp);
@@ -449,51 +435,43 @@ function addDataPointWithTimestamp(parameter, value, operator, adjustments = '',
         const minutes = String(d.getMinutes()).padStart(2, '0');
         return `${hours}${minutes}`;
     })() : dateTime.time;
-    const fullDateTime = sharedTimestamp ? new Date(sharedTimestamp).toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    }) : dateTime.fullDateTime;
-    
+
     const newEntry = {
-        id: Date.now() + Math.random() + (parameter === 'thickness' ? 0 : parameter === 'weight' ? 1 : 2), // Unique ID
+        id: Date.now() + Math.random().toString(), // Use string ID
+        parameter: parameter,
         time: time.length === 4 ? time : getCurrentTime(),
         date: date,
-        fullDateTime: fullDateTime,
         timestamp: timestamp,
         value: parseFloat(value),
         operator: operator,
         adjustments: adjustments
     };
-    
-    data.push(newEntry);
 
-    // Save updated data
-    const allData = {
-        thickness: getData('thickness'),
-        weight: getData('weight'),
-        coating: getData('coating'),
-        productCode: document.getElementById('productCode')?.value || '9573493',
-        productName: document.getElementById('productName')?.value || 'Klondike Chocolate/Chocolate',
-        freezerName: document.getElementById('freezerName')?.value || '2',
-        images: attachedImages
-    };
-    allData[parameter] = data;
-    localStorage.setItem('spcData', JSON.stringify(allData));
+    try {
+        const response = await fetch('/api/measurements', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(newEntry)
+        });
 
-    // Update chart
-    if (parameter === 'thickness') {
-        updateChart(thicknessChart, 'thickness', data);
-    } else if (parameter === 'weight') {
-        updateChart(weightChart, 'weight', data);
-    } else if (parameter === 'coating') {
-        updateChart(coatingChart, 'coating', data);
+        if (!response.ok) throw new Error('Failed to save measurement');
+
+        // Optimistically update cache and UI
+        cachedData[parameter].push(newEntry);
+
+        // Update specific chart
+        if (parameter === 'thickness') updateChart(thicknessChart, 'thickness', cachedData.thickness);
+        else if (parameter === 'weight') updateChart(weightChart, 'weight', cachedData.weight);
+        else if (parameter === 'coating') updateChart(coatingChart, 'coating', cachedData.coating);
+
+        return newEntry.id;
+    } catch (e) {
+        console.error('Error saving measurement:', e);
+        alert('Failed to save measurement. Please try again.');
+        return null;
     }
-
-    return newEntry.id;
 }
 
 // Add data point (legacy function for compatibility)
@@ -502,34 +480,34 @@ function addDataPoint(parameter, value, operator, adjustments = '') {
 }
 
 // Delete entry
-function deleteEntry(entryId) {
+async function deleteEntry(entryId) {
     if (!confirm('Are you sure you want to delete this entry?')) {
         return;
     }
 
-    ['thickness', 'weight', 'coating'].forEach(parameter => {
-        const data = getData(parameter);
-        const filtered = data.filter(entry => entry.id !== entryId);
-        
-        const allData = {
-            thickness: getData('thickness'),
-            weight: getData('weight'),
-            coating: getData('coating'),
-            productCode: document.getElementById('productCode')?.value || '9573493'
-        };
-        allData[parameter] = filtered;
-        localStorage.setItem('spcData', JSON.stringify(allData));
-        
-        if (parameter === 'thickness') {
-            updateChart(thicknessChart, 'thickness', filtered);
-        } else if (parameter === 'weight') {
-            updateChart(weightChart, 'weight', filtered);
-        } else if (parameter === 'coating') {
-            updateChart(coatingChart, 'coating', filtered);
-        }
-    });
+    try {
+        const response = await fetch(`/api/measurements/${entryId}`, {
+            method: 'DELETE'
+        });
 
-    updateEntriesList();
+        if (!response.ok) throw new Error('Failed to delete');
+
+        // Optimistically remove from cache
+        ['thickness', 'weight', 'coating'].forEach(parameter => {
+            cachedData[parameter] = cachedData[parameter].filter(entry => entry.id !== entryId);
+
+            // Update charts
+            if (parameter === 'thickness') updateChart(thicknessChart, 'thickness', cachedData.thickness);
+            else if (parameter === 'weight') updateChart(weightChart, 'weight', cachedData.weight);
+            else if (parameter === 'coating') updateChart(coatingChart, 'coating', cachedData.coating);
+        });
+
+        updateEntriesList();
+
+    } catch (e) {
+        console.error('Error deleting entry:', e);
+        alert('Failed to delete entry. Please check connection.');
+    }
 }
 
 // Edit entry
@@ -537,7 +515,7 @@ function editEntry(entryId) {
     // Find the entry in any parameter
     let entry = null;
     let parameter = null;
-    
+
     for (const param of ['thickness', 'weight', 'coating']) {
         const data = getData(param);
         const found = data.find(e => e.id === entryId);
@@ -547,9 +525,9 @@ function editEntry(entryId) {
             break;
         }
     }
-    
+
     if (!entry) return;
-    
+
     // Populate form with entry data
     const form = document.getElementById('measurementForm');
     const allData = {
@@ -557,14 +535,14 @@ function editEntry(entryId) {
         weight: getData('weight'),
         coating: getData('coating')
     };
-    
+
     // Find all entries with same timestamp (they were entered together)
     const sameTimeEntries = {
         thickness: allData.thickness.find(e => e.timestamp === entry.timestamp),
         weight: allData.weight.find(e => e.timestamp === entry.timestamp),
         coating: allData.coating.find(e => e.timestamp === entry.timestamp)
     };
-    
+
     if (sameTimeEntries.thickness) {
         document.getElementById('thicknessValue').value = sameTimeEntries.thickness.value;
     }
@@ -578,10 +556,10 @@ function editEntry(entryId) {
     if (sameTimeEntries.thickness) {
         document.getElementById('operatorInitials').value = sameTimeEntries.thickness.operator;
     }
-    
+
     // Delete old entries
     deleteEntry(entryId);
-    
+
     // Scroll to form
     form.scrollIntoView({ behavior: 'smooth', block: 'start' });
     document.getElementById('operatorInitials').focus();
@@ -590,10 +568,10 @@ function editEntry(entryId) {
 // Setup form handler
 function setupFormHandler() {
     const form = document.getElementById('measurementForm');
-    
-    form.addEventListener('submit', function(e) {
+
+    form.addEventListener('submit', function (e) {
         e.preventDefault();
-        
+
         const operator = document.getElementById('operatorInitials').value.trim();
         const thickness = document.getElementById('thicknessValue').value;
         const weight = document.getElementById('weightValue').value;
@@ -608,14 +586,16 @@ function setupFormHandler() {
         // Add all three measurements with same timestamp
         const dateTime = getCurrentDateTime();
         const sharedTimestamp = dateTime.timestamp;
-        
-        // Create entries with shared timestamp
-        const thicknessId = addDataPointWithTimestamp('thickness', thickness, operator, '', sharedTimestamp);
-        const weightId = addDataPointWithTimestamp('weight', weight, operator, adjustments, sharedTimestamp);
-        const coatingId = addDataPointWithTimestamp('coating', coating, operator, '', sharedTimestamp);
 
-        // Update entries list after adding all data
-        updateEntriesList();
+        // Create entries with shared timestamp (await sequentially to ensure order)
+        (async () => {
+            await addDataPointWithTimestamp('thickness', thickness, operator, '', sharedTimestamp);
+            await addDataPointWithTimestamp('weight', weight, operator, adjustments, sharedTimestamp);
+            await addDataPointWithTimestamp('coating', coating, operator, '', sharedTimestamp); // Fixed typo in function name
+
+            // Update entries list after adding all data
+            updateEntriesList();
+        })();
 
         // Reset form (keep operator initials)
         document.getElementById('thicknessValue').value = '';
@@ -628,7 +608,7 @@ function setupFormHandler() {
         const originalHTML = submitBtn.innerHTML;
         submitBtn.innerHTML = '<span>✓ Recorded!</span>';
         submitBtn.style.background = '#00c853';
-        
+
         setTimeout(() => {
             submitBtn.innerHTML = originalHTML;
             submitBtn.style.background = '';
@@ -643,15 +623,11 @@ function setupFormHandler() {
 function setupClearButton() {
     const clearBtn = document.getElementById('clearDataBtn');
     if (clearBtn) {
-        clearBtn.addEventListener('click', function() {
-            if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-                localStorage.removeItem('spcData');
-                updateChart(thicknessChart, 'thickness', []);
-                updateChart(weightChart, 'weight', []);
-                updateChart(coatingChart, 'coating', []);
-                updateEntriesList();
-            }
-        });
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                alert('Clearing all data is disabled in server mode for safety.');
+            });
+        }
     }
 }
 
@@ -754,10 +730,10 @@ function setupHeaderFields() {
     const productCodeInput = document.getElementById('productCode');
     const productNameInput = document.getElementById('productName');
     const freezerNameInput = document.getElementById('freezerName');
-    
+
     [productCodeInput, productNameInput, freezerNameInput].forEach(input => {
         if (input) {
-            input.addEventListener('change', function() {
+            input.addEventListener('change', function () {
                 saveData();
             });
         }
@@ -773,17 +749,17 @@ function setupImageUpload() {
 }
 
 // Handle image upload
-window.handleImageUpload = function(event) {
+window.handleImageUpload = function (event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     if (!file.type.startsWith('image/')) {
         alert('Please select an image file');
         return;
     }
-    
+
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = function (e) {
         const imageData = {
             id: Date.now(),
             data: e.target.result,
@@ -793,7 +769,7 @@ window.handleImageUpload = function(event) {
         attachedImages.push(imageData);
         updateImagePreview();
         saveData();
-        
+
         // Update upload button text
         const uploadText = document.getElementById('imageUploadText');
         if (uploadText) {
@@ -801,7 +777,7 @@ window.handleImageUpload = function(event) {
         }
     };
     reader.readAsDataURL(file);
-    
+
     // Reset input
     event.target.value = '';
 };
@@ -810,7 +786,7 @@ window.handleImageUpload = function(event) {
 function updateImagePreview() {
     const preview = document.getElementById('imagePreview');
     if (!preview) return;
-    
+
     if (attachedImages.length === 0) {
         preview.innerHTML = '';
         const uploadText = document.getElementById('imageUploadText');
@@ -819,7 +795,7 @@ function updateImagePreview() {
         }
         return;
     }
-    
+
     preview.innerHTML = attachedImages.map((img, index) => `
         <div class="image-preview-item">
             <img src="${img.data}" alt="${img.name}">
@@ -829,14 +805,14 @@ function updateImagePreview() {
 }
 
 // Remove image
-window.removeImage = function(imageId) {
+window.removeImage = function (imageId) {
     attachedImages = attachedImages.filter(img => img.id !== imageId);
     updateImagePreview();
     saveData();
-    
+
     const uploadText = document.getElementById('imageUploadText');
     if (uploadText) {
-        uploadText.textContent = attachedImages.length > 0 
+        uploadText.textContent = attachedImages.length > 0
             ? `${attachedImages.length} Photo${attachedImages.length > 1 ? 's' : ''} Attached`
             : 'Attach Photo';
     }
@@ -846,7 +822,7 @@ window.removeImage = function(imageId) {
 function setupSubmitSheet() {
     const submitBtn = document.getElementById('submitSheetBtn');
     if (submitBtn) {
-        submitBtn.addEventListener('click', async function() {
+        submitBtn.addEventListener('click', async function () {
             await generateShiftReport();
         });
     }
@@ -856,7 +832,7 @@ function setupSubmitSheet() {
 async function generateShiftReport() {
     const reportEl = document.getElementById('shiftReport');
     if (!reportEl) return;
-    
+
     // Show loading state
     reportEl.classList.add('show');
     reportEl.innerHTML = `
@@ -867,7 +843,7 @@ async function generateShiftReport() {
             <p>Generating shift report...</p>
         </div>
     `;
-    
+
     try {
         // Collect all data
         const thicknessData = getData('thickness');
@@ -876,7 +852,7 @@ async function generateShiftReport() {
         const productName = document.getElementById('productName')?.value || 'Klondike Chocolate/Chocolate';
         const productCode = document.getElementById('productCode')?.value || '9573493';
         const freezerName = document.getElementById('freezerName')?.value || '2';
-        
+
         // Prepare data summary
         const dataSummary = {
             productName,
@@ -886,38 +862,38 @@ async function generateShiftReport() {
             thickness: {
                 entries: thicknessData.length,
                 latest: thicknessData[thicknessData.length - 1]?.value || 'N/A',
-                average: thicknessData.length > 0 
+                average: thicknessData.length > 0
                     ? (thicknessData.reduce((sum, e) => sum + e.value, 0) / thicknessData.length).toFixed(2)
                     : 'N/A',
                 outOfControl: thicknessData.filter(e => e.value <= SPC_CONFIG.thickness.lcl || e.value >= SPC_CONFIG.thickness.ucl).length,
-                warnings: thicknessData.filter(e => (e.value <= SPC_CONFIG.thickness.lwl || e.value >= SPC_CONFIG.thickness.uwl) && 
+                warnings: thicknessData.filter(e => (e.value <= SPC_CONFIG.thickness.lwl || e.value >= SPC_CONFIG.thickness.uwl) &&
                     e.value > SPC_CONFIG.thickness.lcl && e.value < SPC_CONFIG.thickness.ucl).length
             },
             weight: {
                 entries: weightData.length,
                 latest: weightData[weightData.length - 1]?.value || 'N/A',
-                average: weightData.length > 0 
+                average: weightData.length > 0
                     ? (weightData.reduce((sum, e) => sum + e.value, 0) / weightData.length).toFixed(2)
                     : 'N/A',
                 outOfControl: weightData.filter(e => e.value <= SPC_CONFIG.weight.lcl || e.value >= SPC_CONFIG.weight.ucl).length,
-                warnings: weightData.filter(e => (e.value <= SPC_CONFIG.weight.lwl || e.value >= SPC_CONFIG.weight.uwl) && 
+                warnings: weightData.filter(e => (e.value <= SPC_CONFIG.weight.lwl || e.value >= SPC_CONFIG.weight.uwl) &&
                     e.value > SPC_CONFIG.weight.lcl && e.value < SPC_CONFIG.weight.ucl).length
             },
             coating: {
                 entries: coatingData.length,
                 latest: coatingData[coatingData.length - 1]?.value || 'N/A',
-                average: coatingData.length > 0 
+                average: coatingData.length > 0
                     ? (coatingData.reduce((sum, e) => sum + e.value, 0) / coatingData.length).toFixed(2)
                     : 'N/A',
                 outOfControl: coatingData.filter(e => e.value <= SPC_CONFIG.coating.lcl || e.value >= SPC_CONFIG.coating.ucl).length,
-                warnings: coatingData.filter(e => (e.value <= SPC_CONFIG.coating.lwl || e.value >= SPC_CONFIG.coating.uwl) && 
+                warnings: coatingData.filter(e => (e.value <= SPC_CONFIG.coating.lwl || e.value >= SPC_CONFIG.coating.uwl) &&
                     e.value > SPC_CONFIG.coating.lcl && e.value < SPC_CONFIG.coating.ucl).length
             },
             images: attachedImages.length,
             shiftStart: thicknessData.length > 0 ? thicknessData[0].fullDateTime : 'N/A',
             shiftEnd: thicknessData.length > 0 ? thicknessData[thicknessData.length - 1].fullDateTime : 'N/A'
         };
-        
+
         // Create prompt for LLM
         const prompt = `Analyze this SPC (Statistical Process Control) shift report data and provide a comprehensive summary:
 
@@ -963,13 +939,13 @@ Provide a professional shift report summary including:
         // Use web search to get LLM analysis (simulated)
         // In production, you would call an actual LLM API
         const summary = await generateLLMSummary(prompt, dataSummary);
-        
+
         // Display report
         reportEl.innerHTML = `
             <h4>Shift Report Summary</h4>
             <div class="shift-report-content">${summary}</div>
         `;
-        
+
     } catch (error) {
         console.error('Error generating report:', error);
         reportEl.innerHTML = `
@@ -987,7 +963,7 @@ async function generateLLMSummary(prompt, dataSummary) {
     try {
         // Try to use web search to get insights
         // In a real implementation, you would call an LLM API like OpenAI, Anthropic, etc.
-        
+
         // For now, generate a comprehensive summary based on the data
         let summary = `SHIFT REPORT SUMMARY\n`;
         summary += `═══════════════════════════════════════\n\n`;
@@ -996,11 +972,11 @@ async function generateLLMSummary(prompt, dataSummary) {
         summary += `Freezer: ${dataSummary.freezerName}\n`;
         summary += `Shift Period: ${dataSummary.shiftStart} to ${dataSummary.shiftEnd}\n`;
         summary += `Total Measurements: ${dataSummary.totalMeasurements}\n\n`;
-        
+
         summary += `OVERALL PERFORMANCE:\n`;
         const totalOutOfControl = dataSummary.thickness.outOfControl + dataSummary.weight.outOfControl + dataSummary.coating.outOfControl;
         const totalWarnings = dataSummary.thickness.warnings + dataSummary.weight.warnings + dataSummary.coating.warnings;
-        
+
         if (totalOutOfControl === 0 && totalWarnings === 0) {
             summary += `✓ Excellent process control maintained throughout the shift.\n`;
             summary += `✓ All measurements within acceptable limits.\n`;
@@ -1011,9 +987,9 @@ async function generateLLMSummary(prompt, dataSummary) {
             summary += `✗ Process control issues detected: ${totalOutOfControl} out-of-control measurement(s).\n`;
             summary += `✗ Immediate attention required.\n`;
         }
-        
+
         summary += `\nPARAMETER ANALYSIS:\n\n`;
-        
+
         summary += `SLICE THICKNESS:\n`;
         summary += `  • Latest: ${dataSummary.thickness.latest} (Target: 20.1)\n`;
         summary += `  • Average: ${dataSummary.thickness.average}\n`;
@@ -1022,7 +998,7 @@ async function generateLLMSummary(prompt, dataSummary) {
             summary += `  • Action: Review thickness settings and calibration\n`;
         }
         summary += `\n`;
-        
+
         summary += `SLICE WEIGHT:\n`;
         summary += `  • Latest: ${dataSummary.weight.latest} (Target: 62.1)\n`;
         summary += `  • Average: ${dataSummary.weight.average}\n`;
@@ -1031,7 +1007,7 @@ async function generateLLMSummary(prompt, dataSummary) {
             summary += `  • Action: Check filler settings and product consistency\n`;
         }
         summary += `\n`;
-        
+
         summary += `COATING WEIGHT:\n`;
         summary += `  • Latest: ${dataSummary.coating.latest} (Target: 23.0)\n`;
         summary += `  • Average: ${dataSummary.coating.average}\n`;
@@ -1040,7 +1016,7 @@ async function generateLLMSummary(prompt, dataSummary) {
             summary += `  • Action: Verify coating equipment and flow rates\n`;
         }
         summary += `\n`;
-        
+
         summary += `RECOMMENDATIONS:\n`;
         if (totalOutOfControl === 0) {
             summary += `1. Continue current process parameters\n`;
@@ -1052,23 +1028,23 @@ async function generateLLMSummary(prompt, dataSummary) {
             summary += `3. Increase monitoring frequency if issues persist\n`;
             summary += `4. Document all adjustments made during shift\n`;
         }
-        
+
         if (dataSummary.images > 0) {
             summary += `\nProduct Photos: ${dataSummary.images} photo(s) attached for visual reference.\n`;
         }
-        
+
         summary += `\n═══════════════════════════════════════\n`;
         summary += `Report Generated: ${new Date().toLocaleString()}\n`;
-        
+
         return summary;
-        
+
     } catch (error) {
         throw new Error('Failed to generate summary: ' + error.message);
     }
 }
 
 // Auto-focus first input on load
-window.addEventListener('load', function() {
+window.addEventListener('load', function () {
     setTimeout(() => {
         const firstInput = document.getElementById('operatorInitials');
         if (firstInput) {

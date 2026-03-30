@@ -1,91 +1,186 @@
-# SPC Control Chart Application
+# SPC Control Chart Application - Klondike Department
 
-A mobile-optimized web application for digitizing the Statistical Process Control (SPC) measurement process for Klondike Chocolate production.
+On-premise SPC (Statistical Process Control) monitoring application for the Klondike Department at Plant #1352, Covington. Designed for operators to record quality measurements every 30 minutes from production line freezers using laptops, HMIs, and iPads.
+
+## Architecture
+
+- **Frontend**: React 18 + Chart.js (served via Nginx)
+- **Backend**: Node.js + Express REST API
+- **Database**: PostgreSQL 16
+- **Deployment**: Docker Compose (3 containers: frontend, backend, database)
+- **Network**: Fully on-premise, no internet required
 
 ## Features
 
-- **Real-time SPC Charts**: Visual representation of measurements with control limits (LCL, LWL, Target, UWL, UCL)
-- **Data Entry Form**: Simple, touch-friendly interface for entering measurements
-- **Three Parameters**:
-  - Slice Thickness (Target: 20.1)
-  - Slice Weight (Target: 62.1)
-  - Coating Weight (Target: 23.0)
-- **Color-coded Status**: 
-  - Green: Within control limits
-  - Yellow: Warning zone (between LWL/UWL and LCL/UCL)
-  - Red: Out of control (beyond LCL/UCL)
-- **Data Persistence**: All data stored locally in browser (localStorage)
-- **Recent Entries**: View last 10 measurements
-- **Mobile/iPad Optimized**: Responsive design optimized for tablet use on production floor
+- **3-step operator workflow**: Line Selection > SKU Selection > SPC Workspace
+- **13 SKUs** with product-specific SPC control limits (from PDF spec sheets)
+- **3 production lines** (Line 1: 4 freezers, Line 2: 2 freezers, Line 3: 2 freezers)
+- **Automatic shift detection**: Day (6AM-6PM) / Night (6PM-6AM)
+- **Freezer ribbon tabs** for quick switching between freezers
+- **Real-time SPC charts** with color-coded status (green/orange/red)
+- **Lead initials** capture for shift lead verification
+- **Mix Instruction Sheet confirmation** modal on SKU change
+- **Shift reports** with supervisor sign-off and PDF export
+- **Admin dashboard** with historical data, CSV/Excel export
+- **Photo attachments** for product documentation
+- **Touch-optimized** for iPad, HMI, and laptop use
 
-## How to Use
+## Quick Start (Docker)
 
-1. **Open the Application**: 
-   - Open `index.html` in a web browser
-   - For iPad: Add to home screen for app-like experience
+### Prerequisites
 
-2. **Enter Measurements** (Every 30 minutes):
-   - Enter operator initials
-   - Enter Slice Thickness value
-   - Enter Slice Weight value (with optional adjustments)
-   - Enter Coating Weight value
-   - Tap "Record Measurement"
+- Docker and Docker Compose installed on the server
+- No internet required after initial Docker image pull
 
-3. **View Charts**: 
-   - SPC charts automatically update on the left side
-   - Control limits are displayed as colored lines
-   - Data points are color-coded based on their position relative to limits
+### Deploy
 
-4. **View Recent Entries**: 
-   - Scroll down to see the last 10 measurements
-   - Each entry shows time, values, and operator initials
+```bash
+# Clone the repository to the on-premise server
+git clone <repo-url>
+cd SPC-application-demo-1
 
-## Control Limits
+# Build and start all containers
+docker compose up -d --build
 
-### Slice Thickness
-- LCL: 19.7 | LWL: 19.9 | Target: 20.1 | UWL: 20.3 | UCL: 20.5
+# The app is now running at http://<server-ip>:80
+```
 
-### Slice Weight
-- LCL: 58.1 | LWL: 60.1 | Target: 62.1 | UWL: 64.1 | UCL: 66.1
+### Access
 
-### Coating Weight
-- LCL: 20.6 | LWL: 21.8 | Target: 23.0 | UWL: 24.2 | UCL: 25.4
+- **Operator UI**: `http://<server-ip>/` (port 80)
+- **Admin Dashboard**: `http://<server-ip>/admin`
+- **API Health Check**: `http://<server-ip>/api/health`
 
-## iPad Setup
+### Stop / Restart
 
-1. Open the application in Safari on your iPad
-2. Tap the Share button
-3. Select "Add to Home Screen"
-4. The app will now appear as an icon on your home screen
-5. Open it like a native app - it will run in fullscreen mode
+```bash
+# Stop all services
+docker compose down
 
-## Data Storage
+# Stop but keep database data
+docker compose down
 
-- All data is stored locally in the browser's localStorage
-- Data persists between sessions
-- To clear all data, use the "Clear All Data" button (use with caution)
+# Restart
+docker compose up -d
+
+# Full reset (WARNING: deletes all data)
+docker compose down -v
+docker compose up -d --build
+```
+
+## Project Structure
+
+```
+.
+├── docker-compose.yml          # Docker orchestration (3 services)
+├── backend/
+│   ├── Dockerfile
+│   ├── package.json
+│   └── src/
+│       ├── index.js            # Express server entry point
+│       ├── config/
+│       │   ├── database.js     # PostgreSQL connection pool
+│       │   └── migrate.js      # Database schema creation
+│       ├── routes/
+│       │   ├── lines.js        # GET /api/lines
+│       │   ├── skus.js         # GET /api/skus
+│       │   ├── measurements.js # CRUD /api/measurements
+│       │   ├── reports.js      # Shift reports + PDF generation
+│       │   └── admin.js        # Dashboard, history, CSV/Excel export
+│       └── seeds/
+│           └── seedData.js     # 13 SKUs + 3 lines seed data
+├── frontend/
+│   ├── Dockerfile
+│   ├── nginx.conf              # Nginx config with API proxy
+│   ├── package.json
+│   ├── public/
+│   │   └── index.html
+│   └── src/
+│       ├── App.js              # React Router setup
+│       ├── index.js            # React entry point
+│       ├── components/
+│       │   └── SPCChart.js     # Chart.js SPC chart component
+│       ├── pages/
+│       │   ├── LineSelection.js    # Page 1: Pick production line
+│       │   ├── SkuSelection.js     # Page 2: Pick SKU + confirmation
+│       │   ├── SPCWorkspace.js     # Page 3: Main SPC data entry
+│       │   └── AdminDashboard.js   # Admin: history, reports, export
+│       ├── styles/
+│       │   └── global.css      # All CSS (matching original design)
+│       └── utils/
+│           ├── api.js          # API client functions
+│           └── helpers.js      # Shift detection, formatting, etc.
+```
+
+## Operator Workflow
+
+1. **Select Line** - Choose Line 1, 2, or 3
+2. **Select SKU** - Pick the product being produced (13 options)
+3. **Confirmation** - Acknowledge "Check with your Mix Instruction Sheet"
+4. **SPC Workspace**:
+   - Switch between freezers using the ribbon tabs
+   - Enter operator initials, lead initials
+   - Enter Slice Thickness, Slice Weight, Coating Weight
+   - Document any adjustments
+   - Attach product photos (optional)
+   - Click "Record Measurement"
+   - View real-time SPC charts updating
+   - At end of shift: Submit Shift Report with supervisor sign-off
+
+## SKUs Included
+
+| Product | Code | Thickness Target | Weight Target | Coating Target |
+|---------|------|-----------------|---------------|----------------|
+| Klondike Reese's PB Cup | 68300738 | 17.8 | 59.5 | 18.0 |
+| Klondike Original MTB | 68689251 | 19.6 | 62.3 | 23.0 |
+| Klondike SAB RF NSA Vanilla | 68709233 | 17.8 | 56.5 | 18.0 |
+| Klondike Chocolate/Chocolate | 68709237 | 19.6 | 62.1 | 23.0 |
+| Klondike SAB NSA Krunch | 68710277 | 17.9 | 57.1 | 15.4 |
+| Klondike Krunch Bars | 68710285 | 18.1 | 57.4 | 24.6 |
+| Klondike Mint Choc. Chip 12-6PK | 68746232 | 17.7 | 55.7 | 21.3 |
+| Klondike Cookies & Creme 12-6PK | 68852583 | 16.8 | 52.9 | 22.1 |
+| Klondike Heath | 68852591 | 17.2 | 52.1 | 20.4 |
+| Klondike Dark Chocolate | 68921994 | 19.6 | 62.1 | 23.0 |
+| Klondike Original (69548143) | 69548143 | 20.1 | 62.3 | 23.0 |
+| Klondike Reese's (69549032) | 69549032 | 17.0 | 50.4 | 17.0 |
+| Klondike Reese's (69779478) | 69779478 | 17.0 | 50.4 | 17.0 |
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/health | Health check |
+| GET | /api/lines | List all lines |
+| GET | /api/skus | List all active SKUs |
+| GET | /api/measurements | List measurements (filtered) |
+| GET | /api/measurements/chart-data | Chart data for SPC charts |
+| POST | /api/measurements | Record new measurement |
+| PUT | /api/measurements/:id | Update measurement |
+| DELETE | /api/measurements/:id | Delete measurement |
+| GET | /api/reports | List shift reports |
+| POST | /api/reports | Create shift report |
+| GET | /api/reports/:id | Get single report |
+| GET | /api/reports/:id/pdf | Download report as PDF |
+| GET | /api/admin/dashboard | Admin dashboard data |
+| GET | /api/admin/history | Paginated measurement history |
+| GET | /api/admin/export/csv | Export data as CSV |
+| GET | /api/admin/export/excel | Export data as Excel |
+
+## Database
+
+Data is persisted in a PostgreSQL volume (`pgdata`). To back up:
+
+```bash
+# Backup database
+docker exec spc-database pg_dump -U spc_user spc_db > backup.sql
+
+# Restore database
+cat backup.sql | docker exec -i spc-database psql -U spc_user spc_db
+```
 
 ## Browser Compatibility
 
-- Safari (iOS/iPadOS) - Recommended
+- Safari (iOS/iPadOS) - Primary target for iPads
 - Chrome (Android/Desktop)
-- Firefox (Desktop)
-- Edge (Desktop)
-
-## Technical Details
-
-- Pure HTML/CSS/JavaScript (no build process required)
-- Chart.js for SPC chart visualization
-- Responsive design with mobile-first approach
-- Touch-optimized interface
-- LocalStorage for data persistence
-
-## Future Enhancements
-
-- Export data to CSV/Excel
-- Print functionality
-- Data backup/restore
-- Multiple shift support
-- Historical data analysis
-- Alert notifications for out-of-control conditions
-
+- Firefox
+- Edge
