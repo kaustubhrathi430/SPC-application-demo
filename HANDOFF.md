@@ -14,6 +14,16 @@ The Claude blueprint work is implemented on this branch across the Postgres back
 - Production hardening for filesystem image storage, backups, security headers, request logging, DB retry, graceful shutdown, same-origin CORS, and detailed health reporting.
 - Demo-mode parity in `frontend/src/utils/mockData.js` and `frontend/src/utils/api.js`, so the admin/master and operator flows now exercise the same API surface when `REACT_APP_DEMO_MODE=true`.
 
+Live validation update:
+
+- Docker-backed Postgres and backend startup were rechecked on 2026-03-30.
+- A fresh-install bug where `line_freezers` stayed empty was fixed in `backend/src/seeds/seedData.js`.
+- Verified live DB state after the fix:
+  - `lines = 3`
+  - `skus = 12`
+  - `line_freezers = 8`
+  - detailed health endpoint returned `status: ok`
+
 ## Latest frontend/demo changes
 
 These were the last uncommitted items completed before this handoff note was added:

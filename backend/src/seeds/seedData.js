@@ -1,9 +1,38 @@
 const pool = require('../config/database');
 
 const lines = [
-  { name: 'line_1', display_name: 'Klondike 1', freezer_count: 4 },
-  { name: 'line_2', display_name: 'Klondike 2', freezer_count: 2 },
-  { name: 'line_3', display_name: 'Klondike 3', freezer_count: 2 },
+  {
+    name: 'line_1',
+    display_name: 'Klondike 1',
+    freezer_count: 4,
+    asset_id: 'PLT1352-L1',
+    freezers: [
+      { freezer_number: 1, pump_count: 1, asset_id: 'PLT1352-L1-FRZ01' },
+      { freezer_number: 2, pump_count: 1, asset_id: 'PLT1352-L1-FRZ02' },
+      { freezer_number: 3, pump_count: 1, asset_id: 'PLT1352-L1-FRZ03' },
+      { freezer_number: 4, pump_count: 1, asset_id: 'PLT1352-L1-FRZ04' },
+    ],
+  },
+  {
+    name: 'line_2',
+    display_name: 'Klondike 2',
+    freezer_count: 2,
+    asset_id: 'PLT1352-L2',
+    freezers: [
+      { freezer_number: 1, pump_count: 2, asset_id: 'PLT1352-L2-FRZ01' },
+      { freezer_number: 2, pump_count: 2, asset_id: 'PLT1352-L2-FRZ02' },
+    ],
+  },
+  {
+    name: 'line_3',
+    display_name: 'Klondike 3',
+    freezer_count: 2,
+    asset_id: 'PLT1352-L3',
+    freezers: [
+      { freezer_number: 1, pump_count: 2, asset_id: 'PLT1352-L3-FRZ01' },
+      { freezer_number: 2, pump_count: 2, asset_id: 'PLT1352-L3-FRZ02' },
+    ],
+  },
 ];
 
 // SKUs ordered per user specification:
@@ -175,12 +204,35 @@ const seed = async () => {
 
     // Seed lines
     for (const line of lines) {
-      await client.query(
-        `INSERT INTO lines (name, display_name, freezer_count)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (name) DO UPDATE SET display_name = $2, freezer_count = $3`,
-        [line.name, line.display_name, line.freezer_count]
+      const lineResult = await client.query(
+        `INSERT INTO lines (name, display_name, freezer_count, asset_id, active)
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (name) DO UPDATE
+         SET display_name = $2,
+             freezer_count = $3,
+             asset_id = $4,
+             active = true
+         RETURNING id`,
+        [line.name, line.display_name, line.freezer_count, line.asset_id || null]
       );
+
+      const lineId = lineResult.rows[0].id;
+
+      for (const freezer of line.freezers) {
+        await client.query(
+          `INSERT INTO line_freezers (line_id, freezer_number, pump_count, asset_id)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (line_id, freezer_number) DO UPDATE
+           SET pump_count = EXCLUDED.pump_count,
+               asset_id = EXCLUDED.asset_id`,
+          [
+            lineId,
+            freezer.freezer_number,
+            freezer.pump_count,
+            freezer.asset_id || null,
+          ]
+        );
+      }
     }
 
     // Deactivate removed SKU 69549032
