@@ -16,22 +16,8 @@
  */
 
 const readline = require('readline');
-const crypto = require('crypto');
 const pool = require('../config/database');
-
-// Simple bcrypt-like hashing using Node.js built-in crypto (no external dependency)
-// Uses PBKDF2 with 100k iterations — secure enough for on-premise use
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  return `pbkdf2:${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  const [, salt, hash] = stored.split(':');
-  const verify = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  return hash === verify;
-}
+const { hashPassword, verifyPassword } = require('../middleware/auth');
 
 function createInterface() {
   return readline.createInterface({
@@ -243,10 +229,12 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('Unexpected error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('Unexpected error:', err);
+    process.exit(1);
+  });
+}
 
 // Export for use by other modules
 module.exports = { hashPassword, verifyPassword };

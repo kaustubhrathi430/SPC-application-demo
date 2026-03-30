@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const pool = require('../config/database');
+const bcrypt = require('bcryptjs');
 
 // Session store (in-memory — cleared on server restart, which is fine for on-premise)
 // Sessions are keyed by token, value is { role, username, createdAt }
@@ -11,6 +11,10 @@ function generateToken() {
 }
 
 function verifyPassword(password, stored) {
+  if (!stored) return false;
+  if (stored.startsWith('$2')) {
+    return bcrypt.compareSync(password, stored);
+  }
   const [, salt, hash] = stored.split(':');
   if (!salt || !hash) return false;
   const verify = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
@@ -18,9 +22,7 @@ function verifyPassword(password, stored) {
 }
 
 function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  return `pbkdf2:${salt}:${hash}`;
+  return bcrypt.hashSync(password, 10);
 }
 
 // Clean expired sessions periodically
