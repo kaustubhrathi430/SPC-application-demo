@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const pool = require('../config/database');
+const { getSmtpSummary, getEmailQueueSummary } = require('../services/emailService');
 
 const HEALTH_TABLES = [
   'measurements',
@@ -8,6 +9,9 @@ const HEALTH_TABLES = [
   'production_orders',
   'audit_log',
   'measurement_images',
+  'email_lists',
+  'email_recipients',
+  'email_queue',
   'skus',
   'lines',
   'line_freezers',
@@ -75,11 +79,16 @@ async function buildSystemHealthSnapshot() {
 
   const backupRoot = process.env.SPC_BACKUP_ROOT || '/backups';
   const backups = listBackupFiles(backupRoot);
+  const emailQueue = await getEmailQueueSummary(pool);
 
   return {
     status: db.status === 'ok' ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     db,
+    email: {
+      smtp: getSmtpSummary(),
+      queue: emailQueue,
+    },
     disk: {
       data: getDiskSnapshot('/data'),
       backups: getDiskSnapshot(backupRoot),

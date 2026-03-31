@@ -254,3 +254,37 @@ export const deleteMasterAccount = (id) =>
   }));
 export const getMasterHealth = () =>
   whenDemo(() => demoApi.getMasterHealth(), () => request('/admin/master-config/health', { credentials: 'include' }));
+
+export const getMasterEmailOverview = () =>
+  whenDemo(() => demoApi.getMasterEmailOverview(), () => request('/admin/master-config/email', { credentials: 'include' }));
+export const getMasterEmailQueue = (params = {}) =>
+  whenDemo(() => demoApi.getMasterEmailQueue(params), () => request(`/admin/master-config/email/queue?${new URLSearchParams(params).toString()}`, { credentials: 'include' }));
+export const updateMasterEmailList = (listKey, data) =>
+  whenDemo(() => demoApi.updateMasterEmailList(listKey, data), () => request(`/admin/master-config/email/lists/${listKey}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  }));
+export const createMasterEmailRecipient = (listKey, data) =>
+  whenDemo(() => demoApi.createMasterEmailRecipient(listKey, data), () => request(`/admin/master-config/email/lists/${listKey}/recipients`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  }));
+export const updateMasterEmailRecipient = (id, data) =>
+  whenDemo(() => demoApi.updateMasterEmailRecipient(id, data), () => request(`/admin/master-config/email/recipients/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  }));
+export const deleteMasterEmailRecipient = (id) =>
+  whenDemo(() => demoApi.deleteMasterEmailRecipient(id), () => request(`/admin/master-config/email/recipients/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  }));
+export const sendMasterEmailTest = (data) =>
+  whenDemo(() => demoApi.sendMasterEmailTest(data), () => request('/admin/master-config/email/test-send', {
+    method: 'POST',
+    body: JSON.stringify(data),
+    credentials: 'include',
+  }));

@@ -9,6 +9,7 @@ const pool = require('./config/database');
 const migrate = require('./config/migrate');
 const migrateV2 = require('./config/migrate_v2');
 const migrateV3 = require('./config/migrate_v3');
+const migrateV4 = require('./config/migrate_v4');
 const { seed } = require('./seeds/seedData');
 const { buildSystemHealthSnapshot } = require('./utils/systemHealth');
 
@@ -186,6 +187,9 @@ async function start() {
 
     console.log('Running v3 migrations...');
     await migrateV3();
+
+    console.log('Running v4 migrations...');
+    await migrateV4();
 
     console.log('Seeding data...');
     await seed();

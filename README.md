@@ -263,16 +263,27 @@ docker compose up -d
 - Ensure NTP or equivalent time synchronization is enabled on the server before go-live.
 - Backups should be copied off the live server according to plant IT policy if removable media workflows are approved.
 - Review `GET /api/health/detailed` after deployment to confirm DB connectivity, disk availability, and latest backup visibility.
+- Start the `email-worker` service alongside `db`, `backend`, and `frontend`, and provide the SMTP environment variables before enabling report delivery.
 
-## Future SMTP Architecture
+## SMTP Email Delivery
 
-SMTP email is intentionally not implemented in this release. If email alerts are added later, use:
+Shift reports and daily digests are delivered asynchronously through PostgreSQL-backed email queues.
 
-- an `email_queue` table in PostgreSQL
-- a `nodemailer` worker loop driven by `setInterval`
-- fire-and-forget queue writes from request handlers
+- `email_queue` stores queued jobs, dedupe keys, retry state, attachment metadata, and delivery timestamps.
+- `email_lists` and `email_recipients` store the shift-report and daily-digest recipient groups managed by master users.
+- `backend/src/workers/emailWorker.js` polls the queue and sends PDF attachments with `nodemailer`.
+- SMTP credentials stay in environment variables:
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM`
+  - `SMTP_SECURE`
+  - `SMTP_REJECT_UNAUTHORIZED`
+- Daily digest timing is controlled by `EMAIL_DAILY_DIGEST_TIME` and defaults to `23:55` server local time.
+- The worker runs as a separate Docker service and does not expose an inbound port.
 
-Email delivery must stay off the operator request path so slow or unavailable SMTP does not block measurement entry, acknowledgments, or report generation.
+If SMTP is unavailable, report creation and operator recording still continue. The queue retries delivery with exponential backoff.
 
 ## Browser Compatibility
 

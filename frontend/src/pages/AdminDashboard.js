@@ -33,6 +33,13 @@ import {
   createMasterAccount,
   deleteMasterAccount,
   getMasterHealth,
+  getMasterEmailOverview,
+  getMasterEmailQueue,
+  updateMasterEmailList,
+  createMasterEmailRecipient,
+  updateMasterEmailRecipient,
+  deleteMasterEmailRecipient,
+  sendMasterEmailTest,
 } from '../utils/api';
 import { formatTime, formatDate, downloadText, downloadBlob } from '../utils/helpers';
 
@@ -139,6 +146,26 @@ function AdminDashboard({ lines, skus, onConfigChanged }) {
   const [masterLines, setMasterLines] = useState([]);
   const [masterAccounts, setMasterAccounts] = useState([]);
   const [masterHealth, setMasterHealth] = useState(null);
+  const [masterEmailOverview, setMasterEmailOverview] = useState(null);
+  const [masterEmailQueue, setMasterEmailQueue] = useState({ data: [], pagination: null });
+  const [selectedEmailListKey, setSelectedEmailListKey] = useState('shift_report');
+  const [emailListForm, setEmailListForm] = useState({
+    display_name: '',
+    description: '',
+    enabled: true,
+  });
+  const [emailRecipientForm, setEmailRecipientForm] = useState({
+    id: null,
+    email: '',
+    display_name: '',
+    active: true,
+  });
+  const [emailTestForm, setEmailTestForm] = useState({
+    recipient_email: '',
+    subject: 'SPC SMTP Test',
+    message: 'SMTP delivery test from the SPC dashboard.',
+  });
+  const [emailNotice, setEmailNotice] = useState('');
 
   const [activeTab, setActiveTab] = useState('overview');
   const [filters, setFilters] = useState(INITIAL_FILTERS);
@@ -175,6 +202,9 @@ function AdminDashboard({ lines, skus, onConfigChanged }) {
     setReportsData({ data: [], pagination: null });
     setOrdersData({ data: [], pagination: null });
     setAuditData({ data: [], pagination: null });
+    setMasterEmailOverview(null);
+    setMasterEmailQueue({ data: [], pagination: null });
+    setEmailNotice('');
     resetOrderDetail();
   }, []);
 
@@ -213,16 +243,21 @@ function AdminDashboard({ lines, skus, onConfigChanged }) {
     if (!isMaster) return;
     setSystemLoading(true);
     try {
-      const [skuRows, lineRows, accountRows, health] = await Promise.all([
+      const [skuRows, lineRows, accountRows, health, emailOverview, emailQueue] = await Promise.all([
         getMasterSkus(),
         getMasterLines(),
         getMasterAccounts(),
         getMasterHealth(),
+        getMasterEmailOverview(),
+        getMasterEmailQueue({ page: 1, per_page: 25 }),
       ]);
       setMasterSkus(skuRows);
       setMasterLines(lineRows);
       setMasterAccounts(accountRows);
       setMasterHealth(health);
+      setMasterEmailOverview(emailOverview);
+      setMasterEmailQueue(emailQueue);
+      setEmailNotice('');
     } finally {
       setSystemLoading(false);
     }
@@ -251,6 +286,32 @@ function AdminDashboard({ lines, skus, onConfigChanged }) {
       setDetailLoading(false);
     }
   }, []);
+
+  const selectedEmailList = useMemo(() => {
+    const lists = masterEmailOverview?.lists || [];
+    return lists.find((list) => list.list_key === selectedEmailListKey) || lists[0] || null;
+  }, [masterEmailOverview, selectedEmailListKey]);
+
+  useEffect(() => {
+    if (!isMaster || !selectedEmailList) {
+      return;
+    }
+    if (selectedEmailList.list_key !== selectedEmailListKey) {
+      setSelectedEmailListKey(selectedEmailList.list_key);
+      return;
+    }
+    setEmailListForm({
+      display_name: selectedEmailList.display_name || '',
+      description: selectedEmailList.description || '',
+      enabled: selectedEmailList.enabled !== false,
+    });
+    setEmailRecipientForm({
+      id: null,
+      email: '',
+      display_name: '',
+      active: true,
+    });
+  }, [isMaster, selectedEmailList, selectedEmailListKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -547,6 +608,65 @@ function AdminDashboard({ lines, skus, onConfigChanged }) {
     if (!confirmed) return;
     await deleteMasterAccount(accountId);
     await loadSystemData();
+  };
+
+  const handleSelectEmailList = (listKey) => {
+    setSelectedEmailListKey(listKey);
+    setEmailNotice('');
+  };
+
+  const handleSaveEmailList = async (event) => {
+    event.preventDefault();
+    if (!selectedEmailListKey) return;
+    await updateMasterEmailList(selectedEmailListKey, emailListForm);
+    setEmailNotice('Email list updated.');
+    await loadSystemData();
+  };
+
+  const handleEditEmailRecipient = (recipient) => {
+    setEmailRecipientForm({
+      id: recipient.id,
+      email: recipient.email || '',
+      display_name: recipient.display_name || '',
+      active: recipient.active !== false,
+    });
+  };
+
+  const handleSaveEmailRecipient = async (event) => {
+    event.preventDefault();
+    if (!selectedEmailListKey) return;
+    const payload = {
+      email: emailRecipientForm.email,
+      display_name: emailRecipientForm.display_name,
+      active: emailRecipientForm.active,
+    };
+    if (emailRecipientForm.id) {
+      await updateMasterEmailRecipient(emailRecipientForm.id, payload);
+    } else {
+      await createMasterEmailRecipient(selectedEmailListKey, payload);
+    }
+    setEmailRecipientForm({
+      id: null,
+      email: '',
+      display_name: '',
+      active: true,
+    });
+    setEmailNotice('Recipient saved.');
+    await loadSystemData();
+  };
+
+  const handleRemoveEmailRecipient = async (recipientId) => {
+    const confirmed = window.confirm('Deactivate this email recipient?');
+    if (!confirmed) return;
+    await deleteMasterEmailRecipient(recipientId);
+    setEmailNotice('Recipient deactivated.');
+    await loadSystemData();
+  };
+
+  const handleSendEmailTest = async (event) => {
+    event.preventDefault();
+    const result = await sendMasterEmailTest(emailTestForm);
+    setEmailNotice(result?.success ? 'Test email sent.' : 'Test email submitted.');
   };
 
   const lineOptions = useMemo(
@@ -1254,6 +1374,188 @@ function AdminDashboard({ lines, skus, onConfigChanged }) {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            <div className="premium-card" style={{ padding: '1rem' }}>
+              <h3 style={{ marginBottom: '1rem' }}>Email Delivery</h3>
+              {masterEmailOverview ? (
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                  <div className="stats-grid">
+                    <div className="stat-card">
+                      <div className="stat-label">SMTP Ready</div>
+                      <div className="stat-value">{masterEmailOverview.smtp?.verification?.ready ? 'Yes' : 'No'}</div>
+                      <div>{masterEmailOverview.smtp?.host || '-'}:{masterEmailOverview.smtp?.port || '-'}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Queue Backlog</div>
+                      <div className="stat-value">{masterEmailOverview.queue?.counts?.backlog || 0}</div>
+                      <div>queued / retryable / sending</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Shift Recipients</div>
+                      <div className="stat-value">{selectedEmailListKey === 'shift_report' ? (selectedEmailList?.recipients?.length || 0) : (masterEmailOverview.lists?.find((list) => list.list_key === 'shift_report')?.recipients?.length || 0)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Digest Recipients</div>
+                      <div className="stat-value">{masterEmailOverview.lists?.find((list) => list.list_key === 'daily_digest')?.recipients?.length || 0}</div>
+                    </div>
+                  </div>
+
+                  {emailNotice && (
+                    <div style={{ padding: '0.75rem 1rem', background: 'rgba(33, 150, 243, 0.08)', borderRadius: '8px' }}>
+                      {emailNotice}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <form onSubmit={handleSaveEmailList} style={{ display: 'grid', gap: '0.6rem' }}>
+                      <h4>Email List Settings</h4>
+                      <select className="premium-input" value={selectedEmailListKey} onChange={(event) => handleSelectEmailList(event.target.value)}>
+                        {(masterEmailOverview.lists || []).map((list) => (
+                          <option key={list.list_key} value={list.list_key}>{list.display_name}</option>
+                        ))}
+                      </select>
+                      <input
+                        className="premium-input"
+                        value={emailListForm.display_name}
+                        onChange={(event) => setEmailListForm((prev) => ({ ...prev, display_name: event.target.value }))}
+                        placeholder="List display name"
+                      />
+                      <textarea
+                        className="premium-input"
+                        value={emailListForm.description}
+                        onChange={(event) => setEmailListForm((prev) => ({ ...prev, description: event.target.value }))}
+                        placeholder="List description"
+                        rows={3}
+                      />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={emailListForm.enabled}
+                          onChange={(event) => setEmailListForm((prev) => ({ ...prev, enabled: event.target.checked }))}
+                        />
+                        Enabled
+                      </label>
+                      <button type="submit" className="premium-btn">Save Email List</button>
+                    </form>
+
+                    <form onSubmit={handleSendEmailTest} style={{ display: 'grid', gap: '0.6rem' }}>
+                      <h4>SMTP Test Send</h4>
+                      <input
+                        className="premium-input"
+                        value={emailTestForm.recipient_email}
+                        onChange={(event) => setEmailTestForm((prev) => ({ ...prev, recipient_email: event.target.value }))}
+                        placeholder="recipient@example.com"
+                      />
+                      <input
+                        className="premium-input"
+                        value={emailTestForm.subject}
+                        onChange={(event) => setEmailTestForm((prev) => ({ ...prev, subject: event.target.value }))}
+                        placeholder="Subject"
+                      />
+                      <textarea
+                        className="premium-input"
+                        value={emailTestForm.message}
+                        onChange={(event) => setEmailTestForm((prev) => ({ ...prev, message: event.target.value }))}
+                        placeholder="Message"
+                        rows={4}
+                      />
+                      <button type="submit" className="premium-btn">Send Test Email</button>
+                    </form>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '1rem' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <h4 style={{ marginBottom: '0.75rem' }}>Recipients for {selectedEmailList?.display_name || '-'}</h4>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Email</th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(selectedEmailList?.recipients || []).map((recipient) => (
+                            <tr key={recipient.id}>
+                              <td>{recipient.email}</td>
+                              <td>{recipient.display_name || '-'}</td>
+                              <td>{recipient.active ? 'Active' : 'Inactive'}</td>
+                              <td style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <button className="icon-btn" onClick={() => handleEditEmailRecipient(recipient)}>Edit</button>
+                                <button className="icon-btn" onClick={() => handleRemoveEmailRecipient(recipient.id)}>Deactivate</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <form onSubmit={handleSaveEmailRecipient} style={{ display: 'grid', gap: '0.6rem' }}>
+                      <h4>{emailRecipientForm.id ? 'Edit Recipient' : 'Add Recipient'}</h4>
+                      <input
+                        className="premium-input"
+                        value={emailRecipientForm.email}
+                        onChange={(event) => setEmailRecipientForm((prev) => ({ ...prev, email: event.target.value }))}
+                        placeholder="Email address"
+                      />
+                      <input
+                        className="premium-input"
+                        value={emailRecipientForm.display_name}
+                        onChange={(event) => setEmailRecipientForm((prev) => ({ ...prev, display_name: event.target.value }))}
+                        placeholder="Display name"
+                      />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={emailRecipientForm.active}
+                          onChange={(event) => setEmailRecipientForm((prev) => ({ ...prev, active: event.target.checked }))}
+                        />
+                        Active
+                      </label>
+                      <button type="submit" className="premium-btn">Save Recipient</button>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={() => setEmailRecipientForm({ id: null, email: '', display_name: '', active: true })}
+                      >
+                        Clear
+                      </button>
+                    </form>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <h4 style={{ marginBottom: '0.75rem' }}>Queue Status</h4>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Created</th>
+                          <th>Type</th>
+                          <th>Status</th>
+                          <th>Attempts</th>
+                          <th>Subject</th>
+                          <th>Last Error</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(masterEmailQueue.data || []).map((job) => (
+                          <tr key={job.id}>
+                            <td>{formatDate(job.created_at)} {formatTime(job.created_at)}</td>
+                            <td>{job.queue_type}</td>
+                            <td>{job.status}</td>
+                            <td>{job.attempt_count}/{job.max_attempts}</td>
+                            <td style={{ maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.subject}</td>
+                            <td style={{ maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.last_error || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <p>Loading email settings...</p>
+              )}
             </div>
 
             <div className="premium-card" style={{ padding: '1rem' }}>

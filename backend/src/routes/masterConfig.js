@@ -2,6 +2,15 @@ const express = require('express');
 const pool = require('../config/database');
 const { requireMaster, hashPassword, verifyPassword } = require('../middleware/auth');
 const { buildSystemHealthSnapshot } = require('../utils/systemHealth');
+const {
+  getEmailOverview,
+  getEmailQueuePage,
+  createRecipient,
+  updateRecipient,
+  deactivateRecipient,
+  updateEmailList,
+  sendTestEmail,
+} = require('../services/emailService');
 
 const router = express.Router();
 router.use(requireMaster);
@@ -678,6 +687,166 @@ router.delete('/master-accounts/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete master account' });
   } finally {
     client.release();
+  }
+});
+
+// GET /api/admin/master-config/email
+router.get('/email', async (req, res) => {
+  try {
+    const overview = await getEmailOverview();
+    res.json(overview);
+  } catch (err) {
+    console.error('Error fetching email overview:', err);
+    res.status(500).json({ error: 'Failed to fetch email overview' });
+  }
+});
+
+// GET /api/admin/master-config/email/queue
+router.get('/email/queue', async (req, res) => {
+  try {
+    const queue = await getEmailQueuePage(req.query);
+    res.json(queue);
+  } catch (err) {
+    console.error('Error fetching email queue:', err);
+    res.status(500).json({ error: 'Failed to fetch email queue' });
+  }
+});
+
+// PUT /api/admin/master-config/email/lists/:list_key
+router.put('/email/lists/:list_key', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(
+      'SELECT * FROM email_lists WHERE list_key = $1',
+      [req.params.list_key]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Email list not found' });
+    }
+
+    const updated = await updateEmailList(req.params.list_key, req.body);
+    await writeAudit(client, {
+      table: 'email_lists',
+      recordId: existing.rows[0].id,
+      action: 'UPDATE',
+      changedBy: req.session.username,
+      oldValues: existing.rows[0],
+      newValues: updated,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating email list:', err);
+    res.status(500).json({ error: 'Failed to update email list' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/admin/master-config/email/lists/:list_key/recipients
+router.post('/email/lists/:list_key/recipients', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { email, display_name, active = true } = req.body;
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+    const listResult = await client.query(
+      'SELECT * FROM email_lists WHERE list_key = $1',
+      [req.params.list_key]
+    );
+    if (listResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Email list not found' });
+    }
+
+    const created = await createRecipient(req.params.list_key, {
+      email,
+      display_name,
+      active,
+    });
+    await writeAudit(client, {
+      table: 'email_recipients',
+      recordId: created.id,
+      action: 'INSERT',
+      changedBy: req.session.username,
+      newValues: created,
+    });
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('Error creating email recipient:', err);
+    res.status(500).json({ error: 'Failed to create email recipient' });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /api/admin/master-config/email/recipients/:id
+router.put('/email/recipients/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(
+      'SELECT * FROM email_recipients WHERE id = $1',
+      [req.params.id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Email recipient not found' });
+    }
+    const updated = await updateRecipient(req.params.id, req.body);
+    await writeAudit(client, {
+      table: 'email_recipients',
+      recordId: req.params.id,
+      action: 'UPDATE',
+      changedBy: req.session.username,
+      oldValues: existing.rows[0],
+      newValues: updated,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating email recipient:', err);
+    res.status(500).json({ error: 'Failed to update email recipient' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/admin/master-config/email/recipients/:id
+router.delete('/email/recipients/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(
+      'SELECT * FROM email_recipients WHERE id = $1',
+      [req.params.id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Email recipient not found' });
+    }
+    const removed = await deactivateRecipient(req.params.id);
+    await writeAudit(client, {
+      table: 'email_recipients',
+      recordId: req.params.id,
+      action: 'UPDATE',
+      changedBy: req.session.username,
+      reason: 'recipient deactivated',
+      oldValues: existing.rows[0],
+      newValues: removed,
+    });
+    res.json(removed);
+  } catch (err) {
+    console.error('Error deleting email recipient:', err);
+    res.status(500).json({ error: 'Failed to delete email recipient' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/admin/master-config/email/test-send
+router.post('/email/test-send', async (req, res) => {
+  try {
+    const { recipient_email, subject, message } = req.body;
+    const sent = await sendTestEmail({ recipient_email, subject, message });
+    res.json({ success: true, message_id: sent.messageId, accepted: sent.accepted, rejected: sent.rejected });
+  } catch (err) {
+    console.error('Error sending test email:', err);
+    res.status(500).json({ error: err.message || 'Failed to send test email' });
   }
 });
 

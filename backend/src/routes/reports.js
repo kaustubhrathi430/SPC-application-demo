@@ -1,6 +1,12 @@
 const express = require('express');
 const PDFDocument = require('pdfkit');
 const pool = require('../config/database');
+const {
+  fetchReportContext: fetchReportContextShared,
+  buildReportCsv: buildReportCsvShared,
+  renderShiftReportPdf,
+} = require('../utils/reportArtifacts');
+const { queueShiftReportEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -478,6 +484,11 @@ router.post('/', async (req, res) => {
       ]
     );
     await client.query('COMMIT');
+    setImmediate(() => {
+      queueShiftReportEmail(result.rows[0].id).catch((emailErr) => {
+        console.error('Failed to enqueue shift report email:', emailErr);
+      });
+    });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -522,7 +533,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const client = await pool.connect();
   try {
-    const context = await fetchReportContext(client, req.params.id);
+    const context = await fetchReportContextShared(client, req.params.id);
     if (!context) {
       return res.status(404).json({ error: 'Report not found' });
     }
@@ -543,7 +554,7 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/csv', async (req, res) => {
   const client = await pool.connect();
   try {
-    const context = await fetchReportContext(client, req.params.id);
+    const context = await fetchReportContextShared(client, req.params.id);
     if (!context) {
       return res.status(404).json({ error: 'Report not found' });
     }
@@ -558,7 +569,7 @@ router.get('/:id/csv', async (req, res) => {
       'Content-Disposition',
       `attachment; filename=shift-report-${safePoNumber}-${context.report.shift_date}.csv`
     );
-    res.send(buildCsv(context));
+    res.send(buildReportCsvShared(context));
   } catch (err) {
     console.error('Error exporting report CSV:', err);
     res.status(500).json({ error: 'Failed to export report CSV' });
@@ -571,11 +582,11 @@ router.get('/:id/csv', async (req, res) => {
 router.get('/:id/pdf', async (req, res) => {
   const client = await pool.connect();
   try {
-    const context = await fetchReportContext(client, req.params.id);
+    const context = await fetchReportContextShared(client, req.params.id);
     if (!context) {
       return res.status(404).json({ error: 'Report not found' });
     }
-    drawPdf(context, res);
+    renderShiftReportPdf(context, res);
   } catch (err) {
     console.error('Error generating PDF:', err);
     res.status(500).json({ error: 'Failed to generate PDF' });

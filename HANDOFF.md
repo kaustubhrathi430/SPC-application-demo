@@ -12,6 +12,7 @@ The Claude blueprint work is implemented on this branch across the Postgres back
 - Batch report rewrite with CR-2150_4-style PDF structure and per-batch CSV export.
 - Three-tier admin/master auth, master setup CLI, corrections with reason code + comment, production-order review lock, audit visibility, and master-only config endpoints/UI.
 - Production hardening for filesystem image storage, backups, security headers, request logging, DB retry, graceful shutdown, same-origin CORS, and detailed health reporting.
+- SMTP email delivery for shift reports and daily digests with `email_queue`, recipient lists, a dedicated worker, and master-only email management in the admin dashboard.
 - Demo-mode parity in `frontend/src/utils/mockData.js` and `frontend/src/utils/api.js`, so the admin/master and operator flows now exercise the same API surface when `REACT_APP_DEMO_MODE=true`.
 
 Live validation update:
@@ -37,7 +38,7 @@ These were the last uncommitted items completed before this handoff note was add
 - `frontend/src/utils/api.js`
   - unified live/demo API dispatch for operator, admin, and master flows.
 - `frontend/src/utils/mockData.js`
-  - expanded demo state to cover production orders, measurements, reports, audit log, master auth/config, corrections, review lock, CSV/PDF stubs, and health responses.
+  - expanded demo state to cover production orders, measurements, reports, audit log, master auth/config, corrections, review lock, CSV/PDF stubs, email queue/config, and health responses.
 
 ## Validation commands
 

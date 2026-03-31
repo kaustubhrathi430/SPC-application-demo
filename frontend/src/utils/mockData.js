@@ -166,6 +166,7 @@ function getStorage() {
 }
 
 function buildDefaultState() {
+  const now = getNowIso();
   return {
     lines: clone(DEFAULT_LINES),
     skus: clone(DEFAULT_SKUS),
@@ -173,12 +174,65 @@ function buildDefaultState() {
     measurements: [],
     reports: [],
     auditLog: [],
+    emailLists: [
+      {
+        id: 1,
+        list_key: 'shift_report',
+        display_name: 'Shift Report Recipients',
+        description: 'Recipients for shift report PDF delivery',
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 2,
+        list_key: 'daily_digest',
+        display_name: 'Daily Digest Recipients',
+        description: 'Recipients for daily digest PDF delivery',
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    emailRecipients: [
+      {
+        id: 1,
+        list_key: 'shift_report',
+        email: 'qa.lead@factory.local',
+        display_name: 'QA Lead',
+        active: true,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 2,
+        list_key: 'daily_digest',
+        email: 'plant.manager@factory.local',
+        display_name: 'Plant Manager',
+        active: true,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    emailQueue: [],
+    smtpConfig: {
+      configured: true,
+      ready: true,
+      host: 'smtp.factory.local',
+      port: 587,
+      secure: false,
+      has_auth: true,
+      from: 'spc@factory.local',
+      daily_digest_time: '23:55',
+      poll_interval_ms: 15000,
+      verification: { configured: true, ready: true },
+    },
     masterAccounts: [
       {
         id: 1,
         username: 'demo-master',
         password: 'demo-master',
-        created_at: getNowIso(),
+        created_at: now,
       },
     ],
     adminPassword: 'demo-admin',
@@ -195,6 +249,9 @@ function buildDefaultState() {
       line: DEFAULT_LINES.length + 1,
       sku: DEFAULT_SKUS.length + 1,
       masterAccount: 2,
+      emailList: 3,
+      emailRecipient: 3,
+      emailQueue: 1,
     },
   };
 }
@@ -222,6 +279,10 @@ function loadState() {
       measurements: parsed.measurements || [],
       reports: parsed.reports || [],
       auditLog: parsed.auditLog || [],
+      emailLists: parsed.emailLists || defaults.emailLists,
+      emailRecipients: parsed.emailRecipients || defaults.emailRecipients,
+      emailQueue: parsed.emailQueue || defaults.emailQueue,
+      smtpConfig: parsed.smtpConfig || defaults.smtpConfig,
       masterAccounts: parsed.masterAccounts || defaults.masterAccounts,
       nextIds: { ...defaults.nextIds, ...(parsed.nextIds || {}) },
       session: parsed.session || defaults.session,
@@ -463,6 +524,105 @@ function getDashboardData(filters = {}) {
       reviewed: demoState.productionOrders.filter((order) => order.status === 'reviewed').length,
     },
   };
+}
+
+function getActiveEmailRecipients(state, listKey) {
+  return state.emailRecipients
+    .filter((recipient) => recipient.list_key === listKey && recipient.active !== false)
+    .map((recipient) => ({
+      id: recipient.id,
+      email: recipient.email,
+      display_name: recipient.display_name,
+      active: recipient.active !== false,
+      created_at: recipient.created_at,
+      updated_at: recipient.updated_at,
+    }));
+}
+
+function getEmailListsWithRecipientsFromState(state) {
+  return state.emailLists.map((list) => ({
+    ...list,
+    recipients: getActiveEmailRecipients(state, list.list_key),
+  }));
+}
+
+function getEmailQueueSummaryFromState(state) {
+  const counts = state.emailQueue.reduce((acc, row) => {
+    acc[row.status] = (acc[row.status] || 0) + 1;
+    return acc;
+  }, {
+    queued: 0,
+    sending: 0,
+    sent: 0,
+    retryable: 0,
+    dead: 0,
+  });
+  counts.backlog = counts.queued + counts.sending + counts.retryable;
+  return {
+    counts,
+    recent: clone(state.emailQueue.slice().sort((left, right) => new Date(right.created_at) - new Date(left.created_at)).slice(0, 25)),
+  };
+}
+
+function getEmailQueuePageFromState(state, params = {}) {
+  const page = Math.max(parseInt(params.page || 1, 10), 1);
+  const perPage = Math.max(parseInt(params.per_page || 25, 10), 1);
+  const sorted = state.emailQueue.slice().sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+  const total = sorted.length;
+  const start = (page - 1) * perPage;
+  return {
+    data: clone(sorted.slice(start, start + perPage)),
+    pagination: {
+      page,
+      per_page: perPage,
+      total,
+      total_pages: Math.max(1, Math.ceil(total / perPage)),
+    },
+  };
+}
+
+function getEmailOverviewFromState(state) {
+  return {
+    smtp: {
+      ...state.smtpConfig,
+    },
+    lists: getEmailListsWithRecipientsFromState(state),
+    queue: getEmailQueueSummaryFromState(state),
+  };
+}
+
+function createDemoEmailJob(state, job) {
+  const now = getNowIso();
+  const entry = {
+    id: state.nextIds.emailQueue++,
+    queue_type: job.queue_type,
+    dedupe_key: job.dedupe_key,
+    mailing_list_key: job.mailing_list_key,
+    subject: job.subject,
+    body_text: job.body_text || null,
+    body_html: job.body_html || null,
+    recipient_snapshot: clone(job.recipient_snapshot || []),
+    payload: clone(job.payload || {}),
+    attachment_name: job.attachment_name,
+    attachment_path: job.attachment_path,
+    attachment_mime: job.attachment_mime || 'application/pdf',
+    attachment_sha256: job.attachment_sha256 || null,
+    attachment_size_bytes: job.attachment_size_bytes || null,
+    status: job.status || 'sent',
+    attempt_count: job.attempt_count || 1,
+    max_attempts: job.max_attempts || 5,
+    next_attempt_at: now,
+    locked_at: null,
+    locked_by: null,
+    last_error: null,
+    response_data: job.response_data || { message_id: `demo-${state.nextIds.emailQueue}`, accepted: [], rejected: [] },
+    created_at: now,
+    updated_at: now,
+    sent_at: job.sent_at || now,
+    failed_at: null,
+  };
+  state.emailQueue.unshift(entry);
+  return entry;
 }
 
 export const demoApi = {
@@ -793,6 +953,33 @@ export const demoApi = {
         production_order_id: report.production_order_id,
         po_number: report.po_number,
       });
+      const recipients = getActiveEmailRecipients(state, 'shift_report');
+      if (recipients.length > 0) {
+        createDemoEmailJob(state, {
+          queue_type: 'shift_report',
+          dedupe_key: `shift-report:${report.id}`,
+          mailing_list_key: 'shift_report',
+          subject: `SPC Shift Report - PO ${report.po_number || report.id} - ${report.shift_date} - Shift ${report.shift}`,
+          body_text: `Shift report for ${report.line_name || getLineById(report.line_id)?.display_name || 'Unknown Line'}`,
+          recipient_snapshot: recipients,
+          payload: {
+            report_id: report.id,
+            production_order_id: report.production_order_id,
+            shift_date: report.shift_date,
+            line_name: getLineById(report.line_id)?.display_name || '',
+            po_number: report.po_number || null,
+          },
+          attachment_name: `shift-report-${report.po_number || report.id}.pdf`,
+          attachment_path: `/demo/email-attachments/shift-report-${report.id}.pdf`,
+          attachment_sha256: `demo-shift-${report.id}`,
+          attachment_size_bytes: 1024,
+          response_data: {
+            message_id: `demo-shift-${report.id}`,
+            accepted: recipients.map((recipient) => recipient.email),
+            rejected: [],
+          },
+        });
+      }
       return state;
     }).reports[0]);
   },
@@ -1308,6 +1495,9 @@ export const demoApi = {
       production_orders: demoState.productionOrders.length,
       audit_log: demoState.auditLog.length,
       measurement_images: 0,
+      email_lists: demoState.emailLists.length,
+      email_recipients: demoState.emailRecipients.length,
+      email_queue: demoState.emailQueue.length,
       skus: demoState.skus.length,
       lines: demoState.lines.length,
       line_freezers: demoState.lines.reduce((sum, line) => sum + line.freezers.length, 0),
@@ -1327,6 +1517,117 @@ export const demoApi = {
       last_backup: null,
       app_version: 'demo',
     };
+  },
+
+  async getMasterEmailOverview() {
+    return clone(getEmailOverviewFromState(demoState));
+  },
+
+  async getMasterEmailQueue(params = {}) {
+    return clone(getEmailQueuePageFromState(demoState, params));
+  },
+
+  async updateMasterEmailList(listKey, data) {
+    return clone(updateState((state) => {
+      const list = state.emailLists.find((entry) => entry.list_key === listKey);
+      if (!list) {
+        throw makeError('Email list not found', 404);
+      }
+      list.display_name = data.display_name ?? list.display_name;
+      list.description = data.description ?? list.description;
+      if (data.enabled !== undefined) {
+        list.enabled = data.enabled !== false;
+      }
+      list.updated_at = getNowIso();
+      appendAudit(state, 'email_lists', list.id, 'UPDATE', state.session?.username || 'demo-master', null, null, clone(list));
+      return state;
+    }).emailLists.find((entry) => entry.list_key === listKey));
+  },
+
+  async createMasterEmailRecipient(listKey, data) {
+    return clone(updateState((state) => {
+      const list = state.emailLists.find((entry) => entry.list_key === listKey);
+      if (!list) {
+        throw makeError('Email list not found', 404);
+      }
+      const now = getNowIso();
+      const recipient = {
+        id: state.nextIds.emailRecipient++,
+        list_key: listKey,
+        email: String(data.email || '').trim().toLowerCase(),
+        display_name: data.display_name ? String(data.display_name).trim() : null,
+        active: data.active !== false,
+        created_at: now,
+        updated_at: now,
+      };
+      state.emailRecipients.push(recipient);
+      appendAudit(state, 'email_recipients', recipient.id, 'INSERT', state.session?.username || 'demo-master', null, null, clone(recipient));
+      return state;
+    }).emailRecipients.slice(-1)[0]);
+  },
+
+  async updateMasterEmailRecipient(id, data) {
+    return clone(updateState((state) => {
+      const recipient = state.emailRecipients.find((entry) => String(entry.id) === String(id));
+      if (!recipient) {
+        throw makeError('Email recipient not found', 404);
+      }
+      const oldValues = clone(recipient);
+      if (data.email !== undefined) {
+        recipient.email = String(data.email).trim().toLowerCase();
+      }
+      if (data.display_name !== undefined) {
+        recipient.display_name = data.display_name ? String(data.display_name).trim() : null;
+      }
+      if (data.active !== undefined) {
+        recipient.active = data.active !== false;
+      }
+      recipient.updated_at = getNowIso();
+      appendAudit(state, 'email_recipients', recipient.id, 'UPDATE', state.session?.username || 'demo-master', null, oldValues, clone(recipient));
+      return state;
+    }).emailRecipients.find((entry) => String(entry.id) === String(id)));
+  },
+
+  async deleteMasterEmailRecipient(id) {
+    updateState((state) => {
+      const index = state.emailRecipients.findIndex((entry) => String(entry.id) === String(id));
+      if (index === -1) {
+        throw makeError('Email recipient not found', 404);
+      }
+      const [recipient] = state.emailRecipients.splice(index, 1);
+      appendAudit(state, 'email_recipients', recipient.id, 'UPDATE', state.session?.username || 'demo-master', 'recipient deactivated', clone(recipient), null);
+      return state;
+    });
+    return { success: true };
+  },
+
+  async sendMasterEmailTest(data) {
+    if (!data?.recipient_email) {
+      throw makeError('recipient_email is required', 400);
+    }
+    const now = getNowIso();
+    updateState((state) => {
+      createDemoEmailJob(state, {
+        queue_type: 'test',
+        dedupe_key: `test-send:${data.recipient_email}:${now}`,
+        mailing_list_key: 'shift_report',
+        subject: data.subject || 'SPC SMTP Test',
+        body_text: data.message || 'SMTP test from SPC demo',
+        recipient_snapshot: [{ email: data.recipient_email, display_name: 'Test Recipient' }],
+        payload: { recipient_email: data.recipient_email },
+        attachment_name: 'smtp-test.pdf',
+        attachment_path: '/demo/email-attachments/smtp-test.pdf',
+        attachment_sha256: `demo-test-${state.nextIds.emailQueue}`,
+        attachment_size_bytes: 1024,
+        response_data: {
+          message_id: `demo-test-${state.nextIds.emailQueue}`,
+          accepted: [data.recipient_email],
+          rejected: [],
+        },
+      });
+      return state;
+    });
+    return { success: true, message_id: `demo-test-${now}` };
   },
 };
 
