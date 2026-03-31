@@ -5,9 +5,11 @@ WORKDIR /app
 
 ARG REACT_APP_API_URL=/api
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ARG PUBLIC_URL=/
+ENV PUBLIC_URL=$PUBLIC_URL
 
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY public/ ./public/
 COPY src/ ./src/
