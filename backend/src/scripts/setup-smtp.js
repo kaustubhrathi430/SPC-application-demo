@@ -198,3 +198,15 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
+module.exports = {
+  createInterface,
+  question,
+  questionHidden,
+  parseBool,
+  parseInteger,
+  escapeEnvValue,
+  upsertEnvValue,
+  readExistingEnv,
+  writeEnv,
+};
