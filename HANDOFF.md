@@ -14,6 +14,8 @@ The Claude blueprint work is implemented on this branch across the Postgres back
 - Production hardening for filesystem image storage, backups, security headers, request logging, DB retry, graceful shutdown, same-origin CORS, and detailed health reporting.
 - SMTP email delivery for shift reports and daily digests with `email_queue`, recipient lists, a dedicated worker, and master-only email management in the admin dashboard.
 - Demo-mode parity in `frontend/src/utils/mockData.js` and `frontend/src/utils/api.js`, so the admin/master and operator flows now exercise the same API surface when `REACT_APP_DEMO_MODE=true`.
+- Deployment target is Linux containers. On Windows, run the stack through WSL2 with Docker Desktop and keep the repo inside the WSL filesystem for the cleanest path handling.
+- Only the frontend port is meant to be exposed outside the host. Backend and database stay on the internal Docker network.
 
 Live validation update:
 
@@ -24,6 +26,9 @@ Live validation update:
   - `skus = 12`
   - `line_freezers = 8`
   - detailed health endpoint returned `status: ok`
+- Backend `npm audit --omit=dev` is now clean after the SMTP hardening update.
+- Frontend `npm audit --omit=dev` still reports known `react-scripts` transitive advisories in the build toolchain. The production nginx image does not ship the CRA build server, so this is a build-time risk rather than a runtime container exposure.
+- SMTP deployment configuration is handled by `backend/src/scripts/setup-smtp.js`, which prompts for host, port, credentials, and delivery defaults, then writes them into a repo-root `.env` file for Docker Compose to consume.
 
 ## Latest frontend/demo changes
 

@@ -30,6 +30,7 @@ On-premise SPC (Statistical Process Control) monitoring application for the Klon
 ### Prerequisites
 
 - Docker and Docker Compose installed on the server
+- On Windows, use WSL2 with Docker Desktop running Linux containers; do not run the stack from native PowerShell or CMD
 - No internet required after initial Docker image pull
 
 ### Deploy
@@ -52,6 +53,7 @@ docker compose up -d --build
 - **Master Owner Login**: `http://<server-ip>/admin` using username + password created by `node backend/src/scripts/setup-master.js`
 - **API Health Check**: `http://<server-ip>/api/health`
 - **Detailed Health Check**: `http://<server-ip>/api/health/detailed`
+- Only port 80 is exposed to users. The backend API and PostgreSQL database stay internal to the Docker network.
 
 ### Stop / Restart
 
@@ -91,6 +93,14 @@ Initial master/admin credentials are created with:
 ```bash
 node backend/src/scripts/setup-master.js
 ```
+
+SMTP settings are captured during deployment with:
+
+```bash
+node backend/src/scripts/setup-smtp.js
+```
+
+That script writes a repo-root `.env` file. Docker Compose reads it automatically on the next `docker compose up`.
 
 ### Change Admin Password
 
@@ -238,6 +248,8 @@ Example cron entry on the plant server:
 0 1 * * * cd /opt/SPC-application-demo && sh scripts/backup-spc.sh >> /opt/SPC-application-demo/backups/backup.log 2>&1
 ```
 
+On Windows factory servers, run scheduled jobs from WSL2 rather than PowerShell so the shell script and Docker CLI behave the same way they do on Linux.
+
 ### Restore Procedure
 
 Target RTO: restore service in under 60 minutes on the plant server.
@@ -263,7 +275,8 @@ docker compose up -d
 - Ensure NTP or equivalent time synchronization is enabled on the server before go-live.
 - Backups should be copied off the live server according to plant IT policy if removable media workflows are approved.
 - Review `GET /api/health/detailed` after deployment to confirm DB connectivity, disk availability, and latest backup visibility.
-- Start the `email-worker` service alongside `db`, `backend`, and `frontend`, and provide the SMTP environment variables before enabling report delivery.
+- Run `node backend/src/scripts/setup-smtp.js` during deployment so SMTP settings are captured into the repo-root `.env` file before starting the stack.
+- Start the `email-worker` service alongside `db`, `backend`, and `frontend`.
 
 ## SMTP Email Delivery
 
@@ -272,7 +285,7 @@ Shift reports and daily digests are delivered asynchronously through PostgreSQL-
 - `email_queue` stores queued jobs, dedupe keys, retry state, attachment metadata, and delivery timestamps.
 - `email_lists` and `email_recipients` store the shift-report and daily-digest recipient groups managed by master users.
 - `backend/src/workers/emailWorker.js` polls the queue and sends PDF attachments with `nodemailer`.
-- SMTP credentials stay in environment variables:
+- SMTP credentials are captured during deployment by `node backend/src/scripts/setup-smtp.js`, which writes a repo-root `.env` file that Docker Compose reads automatically:
   - `SMTP_HOST`
   - `SMTP_PORT`
   - `SMTP_USER`
