@@ -1,0 +1,124 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: spc-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spc_db
+      POSTGRES_USER: spc_user
+      POSTGRES_PASSWORD: spc_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spc_user -d spc_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spc-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: spc_db
+      DB_USER: spc_user
+      DB_PASSWORD: spc_password
+      SPC_IMAGE_ROOT: /data/spc-images
+      SPC_BACKUP_ROOT: /backups
+      REQUEST_LOG_DIR: /data/logs
+      EMAIL_ATTACHMENT_ROOT: /data/email-attachments
+      EMAIL_TIME_ZONE: America/Chicago
+      EMAIL_DAILY_DIGEST_TIME: ${EMAIL_DAILY_DIGEST_TIME:-23:55}
+      EMAIL_POLL_INTERVAL_MS: ${EMAIL_POLL_INTERVAL_MS:-15000}
+      EMAIL_MAX_ATTEMPTS: ${EMAIL_MAX_ATTEMPTS:-5}
+      EMAIL_DIGEST_LOOKBACK_DAYS: ${EMAIL_DIGEST_LOOKBACK_DAYS:-7}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REJECT_UNAUTHORIZED: ${SMTP_REJECT_UNAUTHORIZED:-true}
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3001/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Email worker
+  email-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spc-email-worker
+    restart: unless-stopped
+    command: npm run email-worker
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: spc_db
+      DB_USER: spc_user
+      DB_PASSWORD: spc_password
+      SPC_IMAGE_ROOT: /data/spc-images
+      SPC_BACKUP_ROOT: /backups
+      REQUEST_LOG_DIR: /data/logs
+      EMAIL_ATTACHMENT_ROOT: /data/email-attachments
+      EMAIL_TIME_ZONE: America/Chicago
+      EMAIL_DAILY_DIGEST_TIME: ${EMAIL_DAILY_DIGEST_TIME:-23:55}
+      EMAIL_POLL_INTERVAL_MS: ${EMAIL_POLL_INTERVAL_MS:-15000}
+      EMAIL_MAX_ATTEMPTS: ${EMAIL_MAX_ATTEMPTS:-5}
+      EMAIL_DIGEST_LOOKBACK_DAYS: ${EMAIL_DIGEST_LOOKBACK_DAYS:-7}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REJECT_UNAUTHORIZED: ${SMTP_REJECT_UNAUTHORIZED:-true}
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Nginx Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: /api
+    container_name: spc-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+    driver: local

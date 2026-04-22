@@ -1,0 +1,25 @@
+{
+  "name": "spc-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "homepage": "https://kaustubhrathi30.github.io/SPC-application-demo",
+  "devDependencies": {
+    "chart.js": "^4.4.0",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "react-scripts": "5.0.1",
+    "yaml": "^2.8.3"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "build:demo": "REACT_APP_DEMO_MODE=true react-scripts build"
+  },
+  "proxy": "http://localhost:3001",
+  "browserslist": {
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+  }
+}
